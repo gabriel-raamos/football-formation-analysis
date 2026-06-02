@@ -1,0 +1,233 @@
+'use strict';
+require('dotenv').config();
+const { Pool } = require('pg');
+
+// ─── Connection pool ──────────────────────────────────────────────────────────
+// Supabase usa TLS obrigatório; rejectUnauthorized:false aceita o certificado
+// sem precisar do bundle de CA local.
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false },
+  max: 10,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 5000,
+});
+
+pool.on('error', (err) => {
+  console.error('[db] conexão ociosa com erro:', err.message);
+});
+
+// ─── Query helpers ────────────────────────────────────────────────────────────
+
+/**
+ * Retorna partidas onde (homeFormation == A e awayFormation == B) ou vice-versa.
+ * Retorna resultado instantaneamente a partir do banco.
+ *
+ * @param {number} season
+ * @param {string} formationA
+ * @param {string} formationB
+ * @returns {Promise<object[]>}
+ */
+async function searchByFormations(season, formationA, formationB) {
+  const { rows } = await pool.query(
+    `SELECT
+       f.id,
+       f.date_utc,
+       f.round,
+       f.season,
+       f.goals_home,
+       f.goals_away,
+       f.home_winner,
+       f.away_winner,
+       v.name          AS venue_name,
+       th.id           AS home_id,
+       th.name         AS home_name,
+       th.logo_url     AS home_logo,
+       ta.id           AS away_id,
+       ta.name         AS away_name,
+       ta.logo_url     AS away_logo,
+       lh.formation    AS home_formation,
+       la.formation    AS away_formation
+     FROM fixtures f
+     JOIN fixture_lineups lh ON lh.fixture_id = f.id AND lh.team_id = f.home_team_id
+     JOIN fixture_lineups la ON la.fixture_id = f.id AND la.team_id = f.away_team_id
+     JOIN teams th ON th.id = f.home_team_id
+     JOIN teams ta ON ta.id = f.away_team_id
+     LEFT JOIN venues v ON v.id = f.venue_id
+     WHERE f.season = $1
+       AND f.status = 'FT'
+       AND (
+         (lh.formation = $2 AND la.formation = $3) OR
+         (lh.formation = $3 AND la.formation = $2)
+       )
+     ORDER BY f.date_utc`,
+    [season, formationA, formationB],
+  );
+  return rows;
+}
+
+/**
+ * Retorna ids de partidas de uma temporada que ainda não têm lineup registrado
+ * para ambos os times.
+ *
+ * @param {number} season
+ * @returns {Promise<{ id: number, home_team_id: number, away_team_id: number }[]>}
+ */
+async function getFixturesWithoutLineups(season) {
+  const { rows } = await pool.query(
+    `SELECT f.id, f.home_team_id, f.away_team_id
+     FROM fixtures f
+     WHERE f.season = $1
+       AND NOT EXISTS (
+         SELECT 1 FROM fixture_lineups fl
+         WHERE fl.fixture_id = f.id
+           AND fl.team_id IN (f.home_team_id, f.away_team_id)
+       )
+     ORDER BY f.id`,
+    [season],
+  );
+  return rows;
+}
+
+/**
+ * Insere ou ignora formações de escalação de uma partida.
+ *
+ * @param {number} fixtureId
+ * @param {{ [teamId: string]: string }} lineupMap   e.g. { "127": "4-3-3", "131": "4-2-3-1" }
+ */
+async function saveLineups(fixtureId, lineupMap) {
+  const entries = Object.entries(lineupMap).filter(([, f]) => !!f);
+  if (!entries.length) return;
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    for (const [teamId, formation] of entries) {
+      await client.query(
+        `INSERT INTO fixture_lineups (fixture_id, team_id, formation)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (fixture_id, team_id) DO NOTHING`,
+        [fixtureId, parseInt(teamId), formation],
+      );
+    }
+    await client.query('COMMIT');
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Contagem de registros por tabela — útil para verificar saúde do banco.
+ *
+ * @returns {Promise<{ fixtures: number, lineups: number, teams: number, venues: number }>}
+ */
+async function getStats() {
+  const { rows } = await pool.query(`
+    SELECT
+      (SELECT COUNT(*) FROM fixtures)        AS fixtures,
+      (SELECT COUNT(*) FROM fixture_lineups) AS lineups,
+      (SELECT COUNT(*) FROM teams)           AS teams,
+      (SELECT COUNT(*) FROM venues)          AS venues
+  `);
+  return {
+    fixtures: parseInt(rows[0].fixtures),
+    lineups:  parseInt(rows[0].lineups),
+    teams:    parseInt(rows[0].teams),
+    venues:   parseInt(rows[0].venues),
+  };
+}
+
+/**
+ * Retorna estatísticas agregadas e metadados de um confronto entre duas formações.
+ * Considera TODAS as temporadas disponíveis no banco.
+ *
+ * @param {string} formationA
+ * @param {string} formationB
+ * @returns {Promise<{
+ *   formation_a: string, formation_b: string,
+ *   total: number, wins_a: number, wins_b: number, draws: number,
+ *   pct_a: number, pct_b: number, pct_draw: number,
+ *   avg_goals: number, min_season: number, max_season: number
+ * }>}
+ */
+async function getFormationStats(formationA, formationB) {
+  const { rows } = await pool.query(
+    `WITH matchups AS (
+       SELECT
+         f.id,
+         f.season,
+         f.goals_home,
+         f.goals_away,
+         f.home_winner,
+         f.away_winner,
+         CASE WHEN lh.formation = $1 THEN 'home' ELSE 'away' END AS side_a
+       FROM fixtures f
+       JOIN fixture_lineups lh ON lh.fixture_id = f.id AND lh.team_id = f.home_team_id
+       JOIN fixture_lineups la ON la.fixture_id = f.id AND la.team_id = f.away_team_id
+       WHERE f.status = 'FT'
+         AND (
+           (lh.formation = $1 AND la.formation = $2) OR
+           (lh.formation = $2 AND la.formation = $1)
+         )
+     )
+     SELECT
+       COUNT(*)::int                                               AS total,
+       SUM(CASE
+         WHEN side_a = 'home' AND home_winner = TRUE  THEN 1
+         WHEN side_a = 'away' AND away_winner = TRUE  THEN 1
+         ELSE 0 END)::int                                         AS wins_a,
+       SUM(CASE
+         WHEN side_a = 'home' AND away_winner = TRUE  THEN 1
+         WHEN side_a = 'away' AND home_winner = TRUE  THEN 1
+         ELSE 0 END)::int                                         AS wins_b,
+       SUM(CASE
+         WHEN home_winner IS NULL
+          AND goals_home  IS NOT NULL THEN 1
+         ELSE 0 END)::int                                         AS draws,
+       ROUND(AVG((goals_home + goals_away)::numeric), 1)          AS avg_goals,
+       MIN(season)::int                                           AS min_season,
+       MAX(season)::int                                           AS max_season
+     FROM matchups`,
+    [formationA, formationB],
+  );
+
+  const r = rows[0];
+  if (!r || !r.total) {
+    return {
+      formation_a: formationA, formation_b: formationB,
+      total: 0, wins_a: 0, wins_b: 0, draws: 0,
+      pct_a: 0, pct_b: 0, pct_draw: 0,
+      avg_goals: 0, min_season: null, max_season: null,
+    };
+  }
+
+  const pct = (n) => parseFloat(((n / r.total) * 100).toFixed(1));
+
+  return {
+    formation_a:  formationA,
+    formation_b:  formationB,
+    total:        r.total,
+    wins_a:       r.wins_a,
+    wins_b:       r.wins_b,
+    draws:        r.draws,
+    pct_a:        pct(r.wins_a),
+    pct_b:        pct(r.wins_b),
+    pct_draw:     pct(r.draws),
+    avg_goals:    parseFloat(r.avg_goals ?? 0),
+    min_season:   r.min_season,
+    max_season:   r.max_season,
+  };
+}
+
+module.exports = {
+  pool,
+  searchByFormations,
+  getFixturesWithoutLineups,
+  saveLineups,
+  getStats,
+  getFormationStats,
+};

@@ -1,0 +1,12 @@
+node_modules/
+
+# Variáveis de ambiente — NUNCA commitar
+.env
+
+# Arquivos gerados localmente
+cache.json
+brasileirao.sql
+
+# Logs
+*.log
+npm-debug.log*

@@ -1,0 +1,16 @@
+{
+  "name": "brasileirao-formacoes",
+  "version": "1.0.0",
+  "description": "Busca de partidas do Brasileirão Série A por formação tática",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "ollama": "^0.6.3",
+    "axios": "^1.7.2",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "pg": "^8.12.0"
+  }
+}

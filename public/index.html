@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Brasileirão · Formações</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:      #0d1117;
+      --surface: #161b22;
+      --border:  #21262d;
+      --text:    #e6edf3;
+      --muted:   #8b949e;
+      --blue:    #58a6ff;
+      --orange:  #f78166;
+      --gray:    #30363d;
+      --green:   #3fb950;
+      --red:     #f85149;
+    }
+
+    body {
+      font-family: -apple-system, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem 1rem;
+    }
+
+    main {
+      width: 100%;
+      max-width: 480px;
+    }
+
+    /* ── Header ─────────────────────────────────── */
+    .header {
+      text-align: center;
+      margin-bottom: 2rem;
+    }
+    .header h1 {
+      font-size: .8rem;
+      font-weight: 600;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    /* ── Search row ─────────────────────────────── */
+    .search {
+      display: flex;
+      align-items: center;
+      gap: .6rem;
+    }
+
+    select {
+      flex: 1;
+      appearance: none;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: .75rem 1rem;
+      border-radius: 8px;
+      font-size: .95rem;
+      font-weight: 600;
+      font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+      cursor: pointer;
+      outline: none;
+      transition: border-color .15s;
+      /* custom arrow */
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%238b949e'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right .85rem center;
+      padding-right: 2.2rem;
+    }
+    select:focus, select:hover { border-color: var(--blue); }
+    select option { background: var(--surface); }
+
+    .vs {
+      font-size: .72rem;
+      font-weight: 700;
+      letter-spacing: .06em;
+      color: var(--muted);
+      text-transform: uppercase;
+      flex-shrink: 0;
+    }
+
+    .btn-analyze {
+      background: var(--blue);
+      color: #0d1117;
+      border: none;
+      width: 40px;
+      height: 40px;
+      border-radius: 8px;
+      font-size: 1.1rem;
+      cursor: pointer;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: opacity .15s;
+    }
+    .btn-analyze:hover:not(:disabled) { opacity: .85; }
+    .btn-analyze:disabled { opacity: .35; cursor: not-allowed; }
+
+    /* ── Error ──────────────────────────────────── */
+    .error {
+      margin-top: 1rem;
+      background: #1c1012;
+      border: 1px solid #3d1a1f;
+      color: var(--red);
+      border-radius: 8px;
+      padding: .65rem .9rem;
+      font-size: .82rem;
+    }
+
+    /* ── Result card ────────────────────────────── */
+    .result {
+      margin-top: 2rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.5rem;
+      animation: fadeUp .25s ease;
+    }
+
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* formation labels row */
+    .fmt-labels {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: .5rem;
+    }
+    .fmt-label {
+      font-size: .8rem;
+      font-weight: 700;
+      font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+    .fmt-label.a { color: var(--blue); }
+    .fmt-label.b { color: var(--orange); }
+    .fmt-label.draw {
+      font-size: .68rem;
+      color: var(--muted);
+      font-weight: 500;
+    }
+
+    /* win bar */
+    .bar {
+      display: flex;
+      height: 48px;
+      border-radius: 8px;
+      overflow: hidden;
+      margin-bottom: .5rem;
+    }
+    .bar-seg {
+      transition: flex .5s cubic-bezier(.4,0,.2,1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: .78rem;
+      font-weight: 700;
+      font-family: 'SF Mono', monospace;
+      overflow: hidden;
+      white-space: nowrap;
+    }
+    .bar-seg.a    { background: var(--blue);   color: #0d1117; }
+    .bar-seg.draw { background: var(--gray);   color: var(--muted); }
+    .bar-seg.b    { background: var(--orange); color: #0d1117; }
+
+    /* percentages row */
+    .pcts {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 1.25rem;
+    }
+    .pct { font-size: .85rem; font-weight: 600; }
+    .pct.a    { color: var(--blue); }
+    .pct.draw { color: var(--muted); text-align: center; flex: 1; }
+    .pct.b    { color: var(--orange); text-align: right; }
+
+    /* AI analysis */
+    .analysis {
+      font-size: .9rem;
+      line-height: 1.65;
+      color: var(--text);
+      min-height: 1.5rem;
+      border-top: 1px solid var(--border);
+      padding-top: 1rem;
+      margin-bottom: .75rem;
+    }
+    .analysis.loading::after {
+      content: '▋';
+      display: inline-block;
+      animation: blink .7s step-end infinite;
+      margin-left: 1px;
+      color: var(--muted);
+    }
+    @keyframes blink { 50% { opacity: 0; } }
+
+    /* sample size */
+    .sample {
+      font-size: .7rem;
+      color: var(--muted);
+    }
+
+    /* ── No-data state ──────────────────────────── */
+    .no-data {
+      text-align: center;
+      padding: 1.5rem 0 .5rem;
+    }
+    .no-data p {
+      font-size: .85rem;
+      color: var(--muted);
+      line-height: 1.55;
+    }
+    .no-data code {
+      font-family: 'SF Mono', monospace;
+      font-size: .8rem;
+      background: var(--gray);
+      padding: .1rem .35rem;
+      border-radius: 4px;
+      color: var(--text);
+    }
+  </style>
+</head>
+<body>
+<main>
+
+  <div class="header">
+    <h1>Brasileirão Série A &nbsp;·&nbsp; Formações</h1>
+  </div>
+
+  <div class="search">
+    <select id="fmtA" aria-label="Formação A">
+      <option value="">Formação A</option>
+      <option>4-3-3</option>
+      <option>4-2-3-1</option>
+      <option>4-4-2</option>
+      <option>4-5-1</option>
+      <option>4-1-4-1</option>
+      <option>4-3-2-1</option>
+      <option>4-2-2-2</option>
+      <option>3-5-2</option>
+      <option>3-4-3</option>
+      <option>3-4-2-1</option>
+      <option>5-3-2</option>
+      <option>5-4-1</option>
+    </select>
+
+    <span class="vs">vs</span>
+
+    <select id="fmtB" aria-label="Formação B">
+      <option value="">Formação B</option>
+      <option>4-3-3</option>
+      <option>4-2-3-1</option>
+      <option>4-4-2</option>
+      <option>4-5-1</option>
+      <option>4-1-4-1</option>
+      <option>4-3-2-1</option>
+      <option>4-2-2-2</option>
+      <option>3-5-2</option>
+      <option>3-4-3</option>
+      <option>3-4-2-1</option>
+      <option>5-3-2</option>
+      <option>5-4-1</option>
+    </select>
+
+    <button class="btn-analyze" id="btnAnalyze" aria-label="Analisar" title="Analisar">
+      &#x2192;
+    </button>
+  </div>
+
+  <div class="error" id="errorBanner" hidden></div>
+  <div class="result" id="result" hidden></div>
+
+</main>
+
+<script>
+  const $  = id => document.getElementById(id);
+  let es   = null;
+  let done = false;
+
+  $('btnAnalyze').addEventListener('click', analyze);
+
+  // Also trigger on Enter key inside selects
+  ['fmtA', 'fmtB'].forEach(id =>
+    $(id).addEventListener('keydown', e => { if (e.key === 'Enter') analyze(); })
+  );
+
+  function analyze() {
+    const fmtA = $('fmtA').value;
+    const fmtB = $('fmtB').value;
+
+    if (!fmtA || !fmtB) { showError('Selecione as duas formações.'); return; }
+    if (fmtA === fmtB)  { showError('As formações devem ser diferentes.'); return; }
+
+    if (es) { es.close(); es = null; }
+    done = false;
+
+    $('errorBanner').hidden = true;
+    $('btnAnalyze').disabled = true;
+
+    // Show result card in loading state
+    renderLoading(fmtA, fmtB);
+    $('result').hidden = false;
+
+    const params = new URLSearchParams({ formation_a: fmtA, formation_b: fmtB });
+    es = new EventSource(`/api/analysis?${params}`);
+
+    es.addEventListener('stats', e => {
+      const s = JSON.parse(e.data);
+      if (s.total === 0) {
+        renderNoData(fmtA, fmtB);
+      } else {
+        renderStats(s);
+      }
+    });
+
+    es.addEventListener('text', e => {
+      const { chunk } = JSON.parse(e.data);
+      const el = $('analysisText');
+      if (el) el.textContent += chunk;
+    });
+
+    es.addEventListener('done', () => {
+      done = true;
+      const el = $('analysisText');
+      if (el) el.classList.remove('loading');
+      $('btnAnalyze').disabled = false;
+      es.close(); es = null;
+    });
+
+    es.addEventListener('api-error', e => {
+      const { message } = JSON.parse(e.data);
+      showError(message);
+      const el = $('analysisText');
+      if (el) el.classList.remove('loading');
+      $('btnAnalyze').disabled = false;
+      es.close(); es = null;
+    });
+
+    es.onerror = () => {
+      if (done || !es || es.readyState === EventSource.CLOSED) return;
+      showError('Erro ao conectar com o servidor.');
+      $('btnAnalyze').disabled = false;
+      if (es) { es.close(); es = null; }
+    };
+  }
+
+  // ── Renderers ──────────────────────────────────────────────────────────────
+
+  function renderLoading(fmtA, fmtB) {
+    $('result').innerHTML = `
+      <div class="fmt-labels">
+        <span class="fmt-label a">${esc(fmtA)}</span>
+        <span class="fmt-label draw">Empate</span>
+        <span class="fmt-label b">${esc(fmtB)}</span>
+      </div>
+      <div class="bar">
+        <div class="bar-seg a"    style="flex:1"></div>
+        <div class="bar-seg draw" style="flex:1"></div>
+        <div class="bar-seg b"    style="flex:1"></div>
+      </div>
+      <div class="pcts">
+        <span class="pct a">–</span>
+        <span class="pct draw">–</span>
+        <span class="pct b">–</span>
+      </div>
+      <p class="analysis loading" id="analysisText"></p>
+      <p class="sample" id="sampleText">Carregando…</p>
+    `;
+  }
+
+  function renderStats(s) {
+    const segA    = $('result').querySelector('.bar-seg.a');
+    const segDraw = $('result').querySelector('.bar-seg.draw');
+    const segB    = $('result').querySelector('.bar-seg.b');
+
+    if (segA)    segA.style.flex    = String(s.pct_a);
+    if (segDraw) segDraw.style.flex = String(s.pct_draw);
+    if (segB)    segB.style.flex    = String(s.pct_b);
+
+    // Show percentage label inside segment only if wide enough
+    if (segA    && s.pct_a    >= 15) segA.textContent    = s.pct_a    + '%';
+    if (segDraw && s.pct_draw >= 10) segDraw.textContent = s.pct_draw + '%';
+    if (segB    && s.pct_b    >= 15) segB.textContent    = s.pct_b    + '%';
+
+    const pcts = $('result').querySelectorAll('.pct');
+    if (pcts[0]) pcts[0].textContent = s.pct_a    + '%';
+    if (pcts[1]) pcts[1].textContent = s.pct_draw + '%';
+    if (pcts[2]) pcts[2].textContent = s.pct_b    + '%';
+
+    const period = s.min_season === s.max_season
+      ? String(s.min_season)
+      : `${s.min_season}–${s.max_season}`;
+    const n = s.total;
+
+    const sample = $('sampleText');
+    if (sample) {
+      sample.textContent =
+        `${n} partida${n !== 1 ? 's' : ''} · Série A ${period} · média ${s.avg_goals} gols/jogo`;
+    }
+  }
+
+  function renderNoData(fmtA, fmtB) {
+    $('result').innerHTML = `
+      <div class="no-data">
+        <p>Nenhuma partida encontrada para <strong>${esc(fmtA)}</strong> vs <strong>${esc(fmtB)}</strong>.</p>
+        <br>
+        <p>Popule o banco executando o seed script:</p>
+        <br>
+        <p><code>node seed.js</code></p>
+      </div>
+    `;
+    $('btnAnalyze').disabled = false;
+    if (es) { es.close(); es = null; }
+  }
+
+  function showError(msg) {
+    $('errorBanner').textContent = msg;
+    $('errorBanner').hidden = false;
+  }
+
+  function esc(str) {
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+</script>
+</body>
+</html>

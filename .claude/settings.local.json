@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install *)",
+      "Bash(node -e \"const { Ollama } = require\\('ollama'\\); console.log\\('ollama OK'\\);\")"
+    ]
+  }
+}

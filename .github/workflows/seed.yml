@@ -1,0 +1,36 @@
+name: Atualização automática do banco
+
+on:
+  schedule:
+    # Todos os dias às 03:00 BRT (06:00 UTC)
+    # Após a rodada do Brasileirão (jogos terminam até ~00:00 BRT)
+    - cron: '0 6 * * *'
+
+  # Permite disparar manualmente pela aba Actions do GitHub
+  workflow_dispatch:
+
+jobs:
+  seed:
+    name: Seed — Brasileirão Série A
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout do repositório
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Executar seed (até 90 chamadas à API)
+        run: node seed.js --max-calls 90
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          API_KEY:      ${{ secrets.FOOTBALL_API_KEY }}
+          URL:          ${{ secrets.FOOTBALL_API_URL }}
