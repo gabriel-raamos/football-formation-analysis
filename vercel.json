@@ -1,5 +1,9 @@
 {
-  "buildCommand": "sed -i \"s|BACKEND_URL_PLACEHOLDER|$BACKEND_URL|g\" public/index.html",
   "outputDirectory": "public",
-  "framework": null
+  "framework": null,
+  "functions": {
+    "api/*.js": {
+      "runtime": "nodejs20.x"
+    }
+  }
 }

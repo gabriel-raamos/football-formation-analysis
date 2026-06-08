@@ -232,93 +232,6 @@
       color: var(--text);
     }
 
-    /* ── Backend config panel ───────────────────── */
-    .cfg-btn {
-      position: fixed;
-      bottom: 1.25rem;
-      right: 1.25rem;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      color: var(--muted);
-      font-size: .72rem;
-      font-family: inherit;
-      padding: .45rem .75rem;
-      border-radius: 6px;
-      cursor: pointer;
-      transition: border-color .15s, color .15s;
-      z-index: 10;
-    }
-    .cfg-btn:hover { border-color: var(--blue); color: var(--text); }
-    .cfg-btn.active { border-color: var(--blue); color: var(--blue); }
-
-    .cfg-panel {
-      position: fixed;
-      bottom: 3.5rem;
-      right: 1.25rem;
-      width: 340px;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 1rem;
-      z-index: 10;
-      display: none;
-      flex-direction: column;
-      gap: .6rem;
-      box-shadow: 0 8px 24px #0006;
-    }
-    .cfg-panel.open { display: flex; }
-
-    .cfg-label {
-      font-size: .72rem;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: .07em;
-      color: var(--muted);
-    }
-    .cfg-status {
-      font-size: .72rem;
-      color: var(--muted);
-      font-family: 'SF Mono', monospace;
-      word-break: break-all;
-    }
-    .cfg-status.ok  { color: var(--green); }
-    .cfg-status.err { color: var(--red);   }
-
-    .cfg-row { display: flex; gap: .5rem; }
-
-    .cfg-input {
-      flex: 1;
-      background: var(--bg);
-      border: 1px solid var(--border);
-      color: var(--text);
-      font-size: .82rem;
-      font-family: 'SF Mono', monospace;
-      padding: .5rem .7rem;
-      border-radius: 6px;
-      outline: none;
-    }
-    .cfg-input:focus { border-color: var(--blue); }
-
-    .cfg-save {
-      background: var(--blue);
-      color: #0d1117;
-      border: none;
-      padding: .5rem .9rem;
-      border-radius: 6px;
-      font-size: .82rem;
-      font-weight: 600;
-      cursor: pointer;
-      white-space: nowrap;
-    }
-    .cfg-clear {
-      background: transparent;
-      border: 1px solid var(--border);
-      color: var(--muted);
-      padding: .5rem .7rem;
-      border-radius: 6px;
-      font-size: .75rem;
-      cursor: pointer;
-    }
   </style>
 </head>
 <body>
@@ -373,89 +286,16 @@
 
 </main>
 
-<!-- Backend config button + panel -->
-<button class="cfg-btn" id="cfgBtn" title="Configurar URL do backend">⚙ backend</button>
-
-<div class="cfg-panel" id="cfgPanel">
-  <span class="cfg-label">URL do servidor (ngrok)</span>
-  <span class="cfg-status" id="cfgStatus">—</span>
-  <div class="cfg-row">
-    <input class="cfg-input" id="cfgInput" type="url"
-           placeholder="https://xxxx.ngrok-free.app">
-    <button class="cfg-save" onclick="saveBackend()">Salvar</button>
-    <button class="cfg-clear" onclick="clearBackend()" title="Remover URL salva">✕</button>
-  </div>
-</div>
-
 <script>
-  // ── Resolução da URL do backend ───────────────────────────────────────────
-  // Prioridade: 1) localStorage  2) injetado no build (secrets do GitHub)
-  // O replace(/\/$/, '') evita double-slash nas chamadas de API.
-
-  const _buildUrl    = 'BACKEND_URL_PLACEHOLDER'.startsWith('http')
-    ? 'BACKEND_URL_PLACEHOLDER'.replace(/\/$/, '')
-    : '';
-  const _storedUrl   = (localStorage.getItem('backendUrl') || '').replace(/\/$/, '');
-  let   API_BASE     = _storedUrl || _buildUrl;   // mutable — atualizado ao salvar
+  // API_BASE: vazio = mesmo domínio (Vercel). Preenchido via localStorage para dev local.
+  const _stored  = (localStorage.getItem('backendUrl') || '').replace(/\/$/, '');
+  const _build   = 'BACKEND_URL_PLACEHOLDER'.startsWith('http')
+    ? 'BACKEND_URL_PLACEHOLDER'.replace(/\/$/, '') : '';
+  let API_BASE   = _stored || _build;
 
   const $  = id => document.getElementById(id);
   let es   = null;
   let done = false;
-
-  // ── Painel de configuração ────────────────────────────────────────────────
-
-  function renderCfgStatus() {
-    const s = $('cfgStatus');
-    if (API_BASE) {
-      s.textContent = API_BASE;
-      s.className   = 'cfg-status ok';
-    } else {
-      s.textContent = 'Nenhuma URL configurada';
-      s.className   = 'cfg-status err';
-    }
-    $('cfgInput').value = API_BASE;
-  }
-
-  function saveBackend() {
-    const val = $('cfgInput').value.trim().replace(/\/$/, '');
-    if (!val.startsWith('http')) { alert('URL inválida. Use https://...'); return; }
-    localStorage.setItem('backendUrl', val);
-    API_BASE = val;
-    renderCfgStatus();
-    closeCfg();
-  }
-
-  function clearBackend() {
-    localStorage.removeItem('backendUrl');
-    API_BASE = _buildUrl;
-    renderCfgStatus();
-  }
-
-  function closeCfg() {
-    $('cfgPanel').classList.remove('open');
-    $('cfgBtn').classList.remove('active');
-  }
-
-  $('cfgBtn').addEventListener('click', () => {
-    const open = $('cfgPanel').classList.toggle('open');
-    $('cfgBtn').classList.toggle('active', open);
-    if (open) renderCfgStatus();
-  });
-
-  // Fechar ao clicar fora
-  document.addEventListener('click', e => {
-    if (!$('cfgPanel').contains(e.target) && e.target !== $('cfgBtn')) closeCfg();
-  });
-
-  // Abrir automaticamente se não há URL configurada e estamos fora do localhost
-  const isRemote = !['localhost', '127.0.0.1'].includes(location.hostname);
-  if (isRemote && !API_BASE) {
-    window.addEventListener('load', () => {
-      $('cfgPanel').classList.add('open');
-      $('cfgBtn').classList.add('active');
-      renderCfgStatus();
-    });
-  }
 
   $('btnAnalyze').addEventListener('click', analyze);
 
