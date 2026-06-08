@@ -286,6 +286,13 @@
 </main>
 
 <script>
+  // Em desenvolvimento local: BACKEND_URL_PLACEHOLDER não começa com "http",
+  // então API_BASE fica vazio e as chamadas vão para o mesmo servidor (relativo).
+  // No GitHub Pages: o workflow substitui o placeholder pela URL real do ngrok.
+  const API_BASE = 'BACKEND_URL_PLACEHOLDER'.startsWith('http')
+    ? 'BACKEND_URL_PLACEHOLDER'
+    : '';
+
   const $  = id => document.getElementById(id);
   let es   = null;
   let done = false;
@@ -315,7 +322,7 @@
     $('result').hidden = false;
 
     const params = new URLSearchParams({ formation_a: fmtA, formation_b: fmtB });
-    es = new EventSource(`/api/analysis?${params}`);
+    es = new EventSource(`${API_BASE}/api/analysis?${params}`);
 
     es.addEventListener('stats', e => {
       const s = JSON.parse(e.data);

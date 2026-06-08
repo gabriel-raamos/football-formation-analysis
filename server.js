@@ -14,6 +14,15 @@ function sse(res, event, payload) {
   res.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
 }
 
+// ─── CORS ─────────────────────────────────────────────────────────────────────
+// Permite que o frontend hospedado no GitHub Pages e no ngrok
+// chame esta API (que roda local com Ollama).
+
+app.use((_req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  next();
+});
+
 // ─── Static front-end ─────────────────────────────────────────────────────────
 
 app.use(express.static(path.join(__dirname, 'public')));
