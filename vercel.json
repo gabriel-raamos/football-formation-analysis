@@ -1,4 +1,9 @@
 {
   "outputDirectory": "public",
-  "framework": null
+  "framework": null,
+  "functions": {
+    "api/server.js": {
+      "runtime": "vercel/node@20.x"
+    }
+  }
 }
