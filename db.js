@@ -223,6 +223,43 @@ async function getFormationStats(formationA, formationB) {
   };
 }
 
+/**
+ * Retorna o texto de análise de IA em cache para um par de formações.
+ * Sempre consulta na ordem canônica (alfabética) para que A vs B = B vs A.
+ *
+ * @param {string} formA
+ * @param {string} formB
+ * @returns {Promise<string|null>}
+ */
+async function getCachedAnalysis(formA, formB) {
+  const [a, b] = [formA, formB].sort();
+  const { rows } = await pool.query(
+    `SELECT analysis_text FROM formation_analyses
+     WHERE formation_a = $1 AND formation_b = $2`,
+    [a, b],
+  );
+  return rows[0]?.analysis_text ?? null;
+}
+
+/**
+ * Salva (ou atualiza) a análise de IA para um par de formações.
+ *
+ * @param {string} formA
+ * @param {string} formB
+ * @param {string} text   Texto completo gerado pelo Ollama
+ */
+async function saveAnalysis(formA, formB, text) {
+  const [a, b] = [formA, formB].sort();
+  await pool.query(
+    `INSERT INTO formation_analyses (formation_a, formation_b, analysis_text)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (formation_a, formation_b) DO UPDATE
+       SET analysis_text = EXCLUDED.analysis_text,
+           generated_at  = NOW()`,
+    [a, b, text],
+  );
+}
+
 module.exports = {
   pool,
   searchByFormations,
@@ -230,4 +267,6 @@ module.exports = {
   saveLineups,
   getStats,
   getFormationStats,
+  getCachedAnalysis,
+  saveAnalysis,
 };

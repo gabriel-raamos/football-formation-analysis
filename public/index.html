@@ -287,87 +287,52 @@
 </main>
 
 <script>
-  // API_BASE: vazio = mesmo domínio (Vercel). Preenchido via localStorage para dev local.
-  const _stored  = (localStorage.getItem('backendUrl') || '').replace(/\/$/, '');
-  const _build   = 'BACKEND_URL_PLACEHOLDER'.startsWith('http')
-    ? 'BACKEND_URL_PLACEHOLDER'.replace(/\/$/, '') : '';
-  let API_BASE   = _stored || _build;
-
-  const $  = id => document.getElementById(id);
-  let es   = null;
-  let done = false;
+  const $ = id => document.getElementById(id);
 
   $('btnAnalyze').addEventListener('click', analyze);
-
-  // Also trigger on Enter key inside selects
   ['fmtA', 'fmtB'].forEach(id =>
     $(id).addEventListener('keydown', e => { if (e.key === 'Enter') analyze(); })
   );
 
-  function analyze() {
+  // ── Análise principal ─────────────────────────────────────────────────────
+
+  async function analyze() {
     const fmtA = $('fmtA').value;
     const fmtB = $('fmtB').value;
 
     if (!fmtA || !fmtB) { showError('Selecione as duas formações.'); return; }
     if (fmtA === fmtB)  { showError('As formações devem ser diferentes.'); return; }
 
-    if (es) { es.close(); es = null; }
-    done = false;
-
     $('errorBanner').hidden = true;
     $('btnAnalyze').disabled = true;
-
-    // Show result card in loading state
-    renderLoading(fmtA, fmtB);
     $('result').hidden = false;
+    renderLoading(fmtA, fmtB);
 
-    const params = new URLSearchParams({ formation_a: fmtA, formation_b: fmtB });
-    es = new EventSource(`${API_BASE}/api/analysis?${params}`);
+    try {
+      const url = `/api/analysis?formation_a=${encodeURIComponent(fmtA)}&formation_b=${encodeURIComponent(fmtB)}`;
+      const resp = await fetch(url);
 
-    es.addEventListener('stats', e => {
-      const s = JSON.parse(e.data);
-      if (s.total === 0) {
+      if (!resp.ok) {
+        const body = await resp.json().catch(() => ({}));
+        throw new Error(body.error || `Erro ${resp.status}`);
+      }
+
+      const data = await resp.json();
+
+      if (!data.total) {
         renderNoData(fmtA, fmtB);
       } else {
-        renderStats(s);
+        renderStats(data);
+        renderAnalysis(data.analysis);
       }
-    });
-
-    es.addEventListener('text', e => {
-      const { chunk } = JSON.parse(e.data);
-      const el = $('analysisText');
-      if (el) el.textContent += chunk;
-    });
-
-    es.addEventListener('done', () => {
-      done = true;
-      const el = $('analysisText');
-      if (el) el.classList.remove('loading');
+    } catch (err) {
+      showError(err.message);
+    } finally {
       $('btnAnalyze').disabled = false;
-      es.close(); es = null;
-    });
-
-    es.addEventListener('api-error', e => {
-      const { message } = JSON.parse(e.data);
-      showError(message);
-      const el = $('analysisText');
-      if (el) el.classList.remove('loading');
-      $('btnAnalyze').disabled = false;
-      es.close(); es = null;
-    });
-
-    es.onerror = () => {
-      if (done) return;
-      const msg = API_BASE
-        ? `Servidor inacessível. Verifique se o ngrok e o servidor estão ativos.`
-        : 'URL do backend não configurada. Clique em ⚙ backend para configurar.';
-      showError(msg);
-      $('btnAnalyze').disabled = false;
-      if (es) { es.close(); es = null; }
-    };
+    }
   }
 
-  // ── Renderers ──────────────────────────────────────────────────────────────
+  // ── Renderização ──────────────────────────────────────────────────────────
 
   function renderLoading(fmtA, fmtB) {
     $('result').innerHTML = `
@@ -386,21 +351,21 @@
         <span class="pct draw">–</span>
         <span class="pct b">–</span>
       </div>
-      <p class="analysis loading" id="analysisText"></p>
-      <p class="sample" id="sampleText">Carregando…</p>
-    `;
+      <p class="analysis" id="analysisText" style="opacity:.4">Carregando…</p>
+      <p class="sample"   id="sampleText"></p>`;
   }
 
   function renderStats(s) {
-    const segA    = $('result').querySelector('.bar-seg.a');
-    const segDraw = $('result').querySelector('.bar-seg.draw');
-    const segB    = $('result').querySelector('.bar-seg.b');
+    const q = sel => $('result').querySelector(sel);
+
+    const segA    = q('.bar-seg.a');
+    const segDraw = q('.bar-seg.draw');
+    const segB    = q('.bar-seg.b');
 
     if (segA)    segA.style.flex    = String(s.pct_a);
     if (segDraw) segDraw.style.flex = String(s.pct_draw);
     if (segB)    segB.style.flex    = String(s.pct_b);
 
-    // Show percentage label inside segment only if wide enough
     if (segA    && s.pct_a    >= 15) segA.textContent    = s.pct_a    + '%';
     if (segDraw && s.pct_draw >= 10) segDraw.textContent = s.pct_draw + '%';
     if (segB    && s.pct_b    >= 15) segB.textContent    = s.pct_b    + '%';
@@ -413,13 +378,20 @@
     const period = s.min_season === s.max_season
       ? String(s.min_season)
       : `${s.min_season}–${s.max_season}`;
-    const n = s.total;
 
     const sample = $('sampleText');
     if (sample) {
       sample.textContent =
-        `${n} partida${n !== 1 ? 's' : ''} · Série A ${period} · média ${s.avg_goals} gols/jogo`;
+        `${s.total} partida${s.total !== 1 ? 's' : ''} · Série A ${period} · média ${s.avg_goals} gols/jogo`;
     }
+  }
+
+  function renderAnalysis(text) {
+    const el = $('analysisText');
+    if (!el) return;
+    el.style.opacity = '1';
+    el.textContent   = text
+      || 'Análise de IA não disponível. Execute "node server.js" localmente com Ollama para gerar.';
   }
 
   function renderNoData(fmtA, fmtB) {
@@ -427,25 +399,17 @@
       <div class="no-data">
         <p>Nenhuma partida encontrada para <strong>${esc(fmtA)}</strong> vs <strong>${esc(fmtB)}</strong>.</p>
         <br>
-        <p>Popule o banco executando o seed script:</p>
-        <br>
-        <p><code>node seed.js</code></p>
-      </div>
-    `;
-    $('btnAnalyze').disabled = false;
-    if (es) { es.close(); es = null; }
+        <p>Execute <code>node seed.js</code> para popular o banco.</p>
+      </div>`;
   }
 
   function showError(msg) {
     $('errorBanner').textContent = msg;
-    $('errorBanner').hidden = false;
+    $('errorBanner').hidden      = false;
   }
 
-  function esc(str) {
-    return String(str)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
+  function esc(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }
 </script>
 </body>
