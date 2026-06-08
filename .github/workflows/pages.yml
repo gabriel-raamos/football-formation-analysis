@@ -1,0 +1,57 @@
+name: Deploy Frontend (GitHub Pages)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'public/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Publicar frontend
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - uses: actions/checkout@v5
+
+      # Injeta a URL do projeto Vercel no HTML para que as chamadas de API
+      # funcionem a partir do GitHub Pages (domínio diferente do Vercel).
+      # Configure o secret VERCEL_URL em:
+      #   Settings → Secrets and variables → Actions → Repository secrets
+      # Valor: https://seu-projeto.vercel.app   (sem barra final)
+      - name: Injetar URL do Vercel no HTML
+        env:
+          VERCEL_URL: ${{ secrets.VERCEL_URL }}
+        run: |
+          if [ -n "$VERCEL_URL" ]; then
+            sed -i "s|VERCEL_URL_PLACEHOLDER|$VERCEL_URL|g" public/index.html
+            echo "VERCEL_URL injetado: $VERCEL_URL"
+          else
+            echo "VERCEL_URL nao configurado — API_BASE ficara vazio"
+          fi
+
+      - name: Configurar GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload da pasta public/
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: './public'
+
+      - name: Deploy no GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

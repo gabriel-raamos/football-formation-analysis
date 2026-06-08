@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(npm install *)",
-      "Bash(node -e \"const { Ollama } = require\\('ollama'\\); console.log\\('ollama OK'\\);\")"
+      "Bash(node -e \"const { Ollama } = require\\('ollama'\\); console.log\\('ollama OK'\\);\")",
+      "Bash(curl -s \"https://gabriel-raamos.github.io/football-formation-analysis/\")"
     ]
   }
 }

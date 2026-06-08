@@ -287,6 +287,11 @@
 </main>
 
 <script>
+  // Quando no Vercel: VERCEL_URL_PLACEHOLDER não é substituído → API_BASE = '' (relativo)
+  // Quando no GitHub Pages: o workflow injeta a URL do projeto Vercel
+  const API_BASE = 'VERCEL_URL_PLACEHOLDER'.startsWith('http')
+    ? 'VERCEL_URL_PLACEHOLDER' : '';
+
   const $ = id => document.getElementById(id);
 
   $('btnAnalyze').addEventListener('click', analyze);
@@ -309,7 +314,7 @@
     renderLoading(fmtA, fmtB);
 
     try {
-      const url = `/api/analysis?formation_a=${encodeURIComponent(fmtA)}&formation_b=${encodeURIComponent(fmtB)}`;
+      const url = `${API_BASE}/api/analysis?formation_a=${encodeURIComponent(fmtA)}&formation_b=${encodeURIComponent(fmtB)}`;
       const resp = await fetch(url);
 
       if (!resp.ok) {
@@ -323,7 +328,7 @@
         renderNoData(fmtA, fmtB);
       } else {
         renderStats(data);
-        renderAnalysis(data.analysis);
+        renderAnalysis(data.analysis, fmtA, fmtB);
       }
     } catch (err) {
       showError(err.message);
@@ -386,12 +391,65 @@
     }
   }
 
-  function renderAnalysis(text) {
+  function renderAnalysis(text, fmtA, fmtB) {
     const el = $('analysisText');
     if (!el) return;
     el.style.opacity = '1';
-    el.textContent   = text
-      || 'Análise de IA não disponível. Execute "node server.js" localmente com Ollama para gerar.';
+
+    if (text) {
+      el.textContent = text;
+      return;
+    }
+
+    // Sem análise em cache: mostra botão de geração apenas no servidor local
+    const isLocal = ['localhost', '127.0.0.1'].includes(location.hostname);
+    if (isLocal) {
+      el.innerHTML =
+        `<span style="opacity:.5">Análise não gerada ainda.</span> ` +
+        `<button id="btnGenerate" style="background:none;border:1px solid var(--border);` +
+        `color:var(--blue);padding:.25rem .6rem;border-radius:5px;font-size:.78rem;` +
+        `cursor:pointer;font-family:inherit;">Gerar com Ollama →</button>`;
+
+      $('btnGenerate').addEventListener('click', () => generateAnalysis(fmtA, fmtB));
+    } else {
+      el.textContent = 'Análise não disponível. Execute o servidor local com Ollama para gerar.';
+    }
+  }
+
+  // Conecta ao endpoint SSE local e atualiza o texto conforme chega
+  function generateAnalysis(fmtA, fmtB) {
+    const btn = $('btnGenerate');
+    if (btn) { btn.disabled = true; btn.textContent = 'Gerando…'; }
+
+    const el = $('analysisText');
+    if (el) { el.style.opacity = '1'; el.textContent = ''; }
+
+    const url = `/api/generate?formation_a=${encodeURIComponent(fmtA)}&formation_b=${encodeURIComponent(fmtB)}`;
+    const es  = new EventSource(url);
+    let   buf = '';
+
+    es.addEventListener('text', e => {
+      buf += JSON.parse(e.data).chunk ?? '';
+      if (el) el.textContent = buf;
+    });
+
+    es.addEventListener('saved', () => {
+      es.close();
+      if (el) el.textContent = buf;
+    });
+
+    es.addEventListener('done', () => es.close());
+
+    es.addEventListener('error', e => {
+      es.close();
+      const msg = JSON.parse(e.data || '{}').message ?? 'Erro ao gerar análise.';
+      if (el) el.textContent = msg;
+    });
+
+    es.onerror = () => {
+      es.close();
+      if (el && !buf) el.textContent = 'Ollama não está rodando. Inicie com: ollama serve';
+    };
   }
 
   function renderNoData(fmtA, fmtB) {

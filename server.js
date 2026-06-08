@@ -8,12 +8,6 @@ const ai      = require('./ai');
 const app  = express();
 const PORT = process.env.PORT || 3000;
 
-// ─── SSE helper ───────────────────────────────────────────────────────────────
-
-function sse(res, event, payload) {
-  res.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
-}
-
 app.use((_req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   next();
@@ -22,13 +16,32 @@ app.use((_req, res, next) => {
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ─── GET /api/analysis ────────────────────────────────────────────────────────
-//
-// Uso local com Ollama.
-// Gera a análise via IA, faz SSE para o browser e, ao finalizar,
-// persiste o texto completo no banco (formation_analyses) para que
-// o Vercel possa servi-lo sem precisar de servidor local.
+// Retorna JSON — mesmo contrato do Vercel (api/analysis.js).
+// Frontend faz fetch() e recebe stats + análise em cache.
 
 app.get('/api/analysis', async (req, res) => {
+  const { formation_a, formation_b } = req.query;
+
+  if (!formation_a || !formation_b) {
+    return res.status(400).json({ error: 'formation_a e formation_b são obrigatórios.' });
+  }
+
+  try {
+    const [stats, analysis] = await Promise.all([
+      db.getFormationStats(formation_a, formation_b),
+      db.getCachedAnalysis(formation_a, formation_b),
+    ]);
+    res.json({ ...stats, analysis });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── GET /api/generate ───────────────────────────────────────────────────────
+// SSE — gera análise via Ollama e salva no banco.
+// Chamado pelo botão "Gerar análise" no frontend local.
+
+app.get('/api/generate', async (req, res) => {
   const { formation_a, formation_b } = req.query;
 
   if (!formation_a || !formation_b) {
@@ -41,31 +54,32 @@ app.get('/api/analysis', async (req, res) => {
   res.setHeader('X-Accel-Buffering', 'no');
   res.flushHeaders();
 
-  let fullText = '';
+  const write = (event, data) =>
+    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 
-  // Intercepta os eventos de texto para montar o texto completo
-  const send = (event, payload) => {
-    sse(res, event, payload);
-    if (event === 'text') fullText += payload.chunk ?? '';
-  };
+  let fullText = '';
 
   try {
     const stats = await db.getFormationStats(formation_a, formation_b);
-    send('stats', stats);
 
-    if (stats.total > 0) {
-      await ai.streamAnalysis(stats, send);
+    if (!stats.total) {
+      write('error', { message: 'Nenhuma partida encontrada para essas formações.' });
+    } else {
+      await ai.streamAnalysis(stats, (event, payload) => {
+        write(event, payload);
+        if (event === 'text') fullText += payload.chunk ?? '';
+      });
 
-      // Persiste no banco para que o Vercel sirva sem Ollama
       if (fullText.trim()) {
         await db.saveAnalysis(formation_a, formation_b, fullText.trim());
+        write('saved', {});
       }
     }
   } catch (err) {
-    send('api-error', { message: err.message ?? 'Erro interno.' });
+    write('error', { message: err.message ?? 'Erro interno.' });
   }
 
-  send('done', {});
+  write('done', {});
   res.end();
 });
 
