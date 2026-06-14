@@ -1,6 +1,7 @@
 'use strict';
 require('dotenv').config();
 const { Pool } = require('pg');
+const { LEAGUES } = require('./leagues');
 
 // ─── Connection pool ──────────────────────────────────────────────────────────
 // Supabase usa TLS obrigatório; rejectUnauthorized:false aceita o certificado
@@ -154,7 +155,7 @@ async function getStats() {
  *   avg_goals: number, min_season: number, max_season: number
  * }>}
  */
-async function getFormationStats(formationA, formationB) {
+async function getFormationStats(formationA, formationB, leagueIds = null) {
   const { rows } = await pool.query(
     `WITH matchups AS (
        SELECT
@@ -173,6 +174,7 @@ async function getFormationStats(formationA, formationB) {
            (lh.formation = $1 AND la.formation = $2) OR
            (lh.formation = $2 AND la.formation = $1)
          )
+         AND ($3::int[] IS NULL OR f.league_id = ANY($3::int[]))
      )
      SELECT
        COUNT(*)::int                                               AS total,
@@ -192,7 +194,7 @@ async function getFormationStats(formationA, formationB) {
        MIN(season)::int                                           AS min_season,
        MAX(season)::int                                           AS max_season
      FROM matchups`,
-    [formationA, formationB],
+    [formationA, formationB, leagueIds && leagueIds.length ? leagueIds : null],
   );
 
   const r = rows[0];
@@ -235,7 +237,7 @@ async function getFormationStats(formationA, formationB) {
  *   avg_goals: number, min_season: number, max_season: number
  * }>}
  */
-async function getFormationOverall(formation) {
+async function getFormationOverall(formation, leagueIds = null) {
   const { rows } = await pool.query(
     `WITH matchups AS (
        SELECT
@@ -250,6 +252,7 @@ async function getFormationOverall(formation) {
        JOIN fixture_lineups la ON la.fixture_id = f.id AND la.team_id = f.away_team_id
        WHERE f.status = 'FT'
          AND (lh.formation = $1 OR la.formation = $1)
+         AND ($2::int[] IS NULL OR f.league_id = ANY($2::int[]))
      )
      SELECT
        COUNT(*)::int                                              AS total,
@@ -269,7 +272,7 @@ async function getFormationOverall(formation) {
        MIN(season)::int                                          AS min_season,
        MAX(season)::int                                          AS max_season
      FROM matchups`,
-    [formation],
+    [formation, leagueIds && leagueIds.length ? leagueIds : null],
   );
 
   const r = rows[0];
@@ -310,7 +313,7 @@ async function getFormationOverall(formation) {
  *   games: number, wins: number, draws: number, losses: number, pct_win: number
  * }[]>}
  */
-async function getTopTeamsForFormation(formation, { limit = 10 } = {}) {
+async function getTopTeamsForFormation(formation, { limit = 10, leagueIds = null } = {}) {
   const { rows } = await pool.query(
     `WITH team_games AS (
        SELECT
@@ -323,6 +326,7 @@ async function getTopTeamsForFormation(formation, { limit = 10 } = {}) {
        WHERE fl.formation = $1
          AND f.status = 'FT'
          AND fl.team_id IN (f.home_team_id, f.away_team_id)
+         AND ($3::int[] IS NULL OR f.league_id = ANY($3::int[]))
      )
      SELECT
        t.id                                                       AS team_id,
@@ -341,7 +345,7 @@ async function getTopTeamsForFormation(formation, { limit = 10 } = {}) {
      GROUP BY t.id, t.name, t.logo_url
      ORDER BY games DESC, wins DESC
      LIMIT $2`,
-    [formation, limit],
+    [formation, limit, leagueIds && leagueIds.length ? leagueIds : null],
   );
 
   return rows.map((r) => ({
@@ -354,6 +358,25 @@ async function getTopTeamsForFormation(formation, { limit = 10 } = {}) {
     losses:   r.losses,
     pct_win:  r.games ? parseFloat(((r.wins / r.games) * 100).toFixed(1)) : 0,
   }));
+}
+
+/**
+ * Lista os campeonatos conhecidos (leagues.js) com a contagem de partidas que
+ * já têm escalação no banco. Alimenta o filtro de ligas no frontend: ligas com
+ * games = 0 ainda não foram populadas (a API-football precisa rodar via seed).
+ *
+ * @returns {Promise<{ id: number, name: string, country: string, games: number }[]>}
+ */
+async function getLeagues() {
+  const { rows } = await pool.query(
+    `SELECT f.league_id, COUNT(DISTINCT f.id)::int AS games
+       FROM fixtures f
+       JOIN fixture_lineups fl ON fl.fixture_id = f.id
+      WHERE f.status = 'FT'
+      GROUP BY f.league_id`,
+  );
+  const counts = new Map(rows.map((r) => [parseInt(r.league_id), r.games]));
+  return LEAGUES.map((l) => ({ ...l, games: counts.get(l.id) || 0 }));
 }
 
 /**
@@ -402,6 +425,7 @@ module.exports = {
   getFormationStats,
   getFormationOverall,
   getTopTeamsForFormation,
+  getLeagues,
   getCachedAnalysis,
   saveAnalysis,
 };
