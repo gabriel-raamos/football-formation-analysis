@@ -305,6 +305,25 @@
     }
     .team-stat strong { color: var(--blue); font-weight: 700; }
 
+    /* ── Times por liga (modo H2H) ─────────────── */
+    .matchup-leagues { margin-top: 1.2rem; border-top: 1px solid var(--border); padding-top: 1rem; }
+    .matchup-league  { margin-bottom: 1.2rem; }
+    .matchup-league:last-child { margin-bottom: 0; }
+    .matchup-league-name {
+      font-size: .7rem; font-weight: 700; letter-spacing: .06em;
+      text-transform: uppercase; color: var(--muted); margin-bottom: .5rem;
+    }
+    .matchup-cols { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
+    .matchup-col-title {
+      font-size: .72rem; font-weight: 700; color: var(--blue);
+      margin-bottom: .25rem; padding-bottom: .2rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .matchup-col-title.b { color: var(--orange); }
+    .matchup-col .team-row  { padding: .2rem 0; }
+    .matchup-col .team-name { font-size: .78rem; }
+    .matchup-col .team-stat { font-size: .65rem; }
+
     /* ── Filtro de campeonatos ──────────────────── */
     .filter-btn {
       margin-top: .75rem;
@@ -815,7 +834,8 @@
         <span class="pct b">–</span>
       </div>
       <p class="analysis" id="analysisText" style="opacity:.4">Carregando…</p>
-      <p class="sample"   id="sampleText"></p>`;
+      <p class="sample"   id="sampleText"></p>
+      <div id="leagueTeams" class="matchup-leagues"></div>`;
   }
 
   // ── Modo geral: uma formação contra todas as outras ───────────────────────
@@ -949,6 +969,42 @@
     };
   }
 
+  function renderLeagueTeams(rows, fmtA, fmtB) {
+    const el = $('leagueTeams');
+    if (!el || !rows || !rows.length) return;
+
+    // Agrupa por liga mantendo a ordem original (league_name já vem ordenado)
+    const leagueMap = new Map();
+    for (const t of rows) {
+      if (!leagueMap.has(t.league_name)) leagueMap.set(t.league_name, { a: [], b: [] });
+      if (t.formation === fmtA) leagueMap.get(t.league_name).a.push(t);
+      else                      leagueMap.get(t.league_name).b.push(t);
+    }
+
+    const renderTeamRow = (t, i) => `
+      <div class="team-row">
+        <span class="team-rank">${i + 1}</span>
+        ${logoTag(t.logo_url, t.team_name)}
+        <span class="team-name">${esc(t.team_name)}</span>
+        <span class="team-stat">${t.wins}V·${t.draws}E·${t.losses}D <strong>${t.pct_win}%</strong></span>
+      </div>`;
+
+    el.innerHTML = [...leagueMap.entries()].map(([leagueName, { a, b }]) => `
+      <div class="matchup-league">
+        <div class="matchup-league-name">${esc(leagueName)}</div>
+        <div class="matchup-cols">
+          <div class="matchup-col">
+            <div class="matchup-col-title a">${esc(fmtA)}</div>
+            ${a.length ? a.map(renderTeamRow).join('') : '<p class="sample">—</p>'}
+          </div>
+          <div class="matchup-col">
+            <div class="matchup-col-title b">${esc(fmtB)}</div>
+            ${b.length ? b.map(renderTeamRow).join('') : '<p class="sample">—</p>'}
+          </div>
+        </div>
+      </div>`).join('');
+  }
+
   function renderStats(s) {
     const q = sel => $('result').querySelector(sel);
 
@@ -978,6 +1034,8 @@
       sample.textContent =
         `${s.total} partida${s.total !== 1 ? 's' : ''} · Série A ${period} · média ${s.avg_goals} gols/jogo`;
     }
+
+    renderLeagueTeams(s.teamsPerLeague, s.formation_a, s.formation_b);
   }
 
   function renderAnalysis(text, fmtA, fmtB) {

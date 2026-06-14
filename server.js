@@ -61,11 +61,12 @@ app.get('/api/analysis', async (req, res) => {
       return res.json({ mode: 'overall', ...overall, teams, matchups, analysis });
     }
 
-    const [stats, analysis] = await Promise.all([
+    const [stats, analysis, teamsPerLeague] = await Promise.all([
       db.getFormationStats(formation_a, formation_b, leagues, seasons),
       db.getCachedAnalysis(formation_a, formation_b),
+      db.getTeamsPerLeagueForMatchup(formation_a, formation_b, leagues, seasons),
     ]);
-    res.json({ mode: 'matchup', ...stats, analysis });
+    res.json({ mode: 'matchup', ...stats, analysis, teamsPerLeague });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

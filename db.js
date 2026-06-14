@@ -482,6 +482,86 @@ async function getFormationMatchups(formation, leagueIds = null, seasons = null)
 }
 
 /**
+ * Top 5 times por formação por liga — para o painel lateral do confronto H2H.
+ * Retorna times que usaram formationA ou formationB (qualquer adversário),
+ * agrupados por liga, ordenados por vitórias.
+ *
+ * @param {string} formationA
+ * @param {string} formationB
+ * @param {number[]|null} leagueIds
+ * @param {number[]|null} seasons
+ */
+async function getTeamsPerLeagueForMatchup(formationA, formationB, leagueIds = null, seasons = null) {
+  const { rows } = await pool.query(
+    `WITH team_games AS (
+       SELECT
+         f.league_id,
+         fl.team_id,
+         fl.formation,
+         CASE WHEN fl.team_id = f.home_team_id THEN f.home_winner ELSE f.away_winner END AS won,
+         f.home_winner,
+         f.goals_home
+       FROM fixture_lineups fl
+       JOIN fixtures f ON f.id = fl.fixture_id
+       WHERE fl.formation IN ($1, $2)
+         AND f.status = 'FT'
+         AND fl.team_id IN (f.home_team_id, f.away_team_id)
+         AND ($3::int[] IS NULL OR f.league_id = ANY($3::int[]))
+         AND ($4::int[] IS NULL OR f.season    = ANY($4::int[]))
+     ),
+     team_stats AS (
+       SELECT
+         tg.league_id,
+         tg.team_id,
+         tg.formation,
+         COUNT(*)::int                                                                AS games,
+         SUM(CASE WHEN tg.won = TRUE  THEN 1 ELSE 0 END)::int                       AS wins,
+         SUM(CASE WHEN tg.home_winner IS NULL AND tg.goals_home IS NOT NULL THEN 1 ELSE 0 END)::int AS draws,
+         SUM(CASE WHEN tg.won = FALSE THEN 1 ELSE 0 END)::int                       AS losses
+       FROM team_games tg
+       GROUP BY tg.league_id, tg.team_id, tg.formation
+     ),
+     ranked AS (
+       SELECT
+         ts.*,
+         t.name     AS team_name,
+         t.logo_url,
+         l.name     AS league_name,
+         ROUND(100.0 * ts.wins / NULLIF(ts.games, 0))::int AS pct_win,
+         ROW_NUMBER() OVER (
+           PARTITION BY ts.league_id, ts.formation
+           ORDER BY ts.wins DESC, ts.games DESC
+         ) AS rn
+       FROM team_stats ts
+       JOIN teams t ON t.id = ts.team_id
+       JOIN leagues l ON l.id = ts.league_id
+     )
+     SELECT league_id, league_name, team_id, team_name, logo_url,
+            formation, games, wins, draws, losses, pct_win
+     FROM ranked
+     WHERE rn <= 5
+     ORDER BY league_name, formation, rn`,
+    [formationA, formationB,
+     leagueIds && leagueIds.length ? leagueIds : null,
+     seasons  && seasons.length  ? seasons  : null],
+  );
+
+  return rows.map(r => ({
+    league_id:   parseInt(r.league_id),
+    league_name: r.league_name,
+    team_id:     parseInt(r.team_id),
+    team_name:   r.team_name,
+    logo_url:    r.logo_url,
+    formation:   r.formation,
+    games:       r.games,
+    wins:        r.wins,
+    draws:       r.draws,
+    losses:      r.losses,
+    pct_win:     r.pct_win ?? 0,
+  }));
+}
+
+/**
  * Lista os campeonatos conhecidos (leagues.js) com a contagem de partidas que
  * já têm escalação no banco. Alimenta o filtro de ligas no frontend: ligas com
  * games = 0 ainda não foram populadas (a API-football precisa rodar via seed).
@@ -560,6 +640,7 @@ module.exports = {
   getFormationMatchups,
   getTopTeamsForFormation,
   getWorstTeamsForFormation,
+  getTeamsPerLeagueForMatchup,
   getLeagues,
   getCachedAnalysis,
   saveAnalysis,
