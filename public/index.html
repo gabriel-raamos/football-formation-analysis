@@ -350,18 +350,22 @@
 
   async function analyze() {
     const fmtA = $('fmtA').value;
-    const fmtB = $('fmtB').value;
+    const fmtB = $('fmtB').value;            // vazio = modo "geral"
+    const overall = !fmtB;
 
-    if (!fmtA || !fmtB) { showError('Selecione as duas formações.'); return; }
+    if (!fmtA)          { showError('Selecione a formação A.'); return; }
     if (fmtA === fmtB)  { showError('As formações devem ser diferentes.'); return; }
 
     $('errorBanner').hidden = true;
     $('btnAnalyze').disabled = true;
     $('result').hidden = false;
-    renderLoading(fmtA, fmtB);
+
+    if (overall) renderOverallLoading(fmtA);
+    else         renderLoading(fmtA, fmtB);
 
     try {
-      const url = `${API_BASE}/api/analysis?formation_a=${encodeURIComponent(fmtA)}&formation_b=${encodeURIComponent(fmtB)}`;
+      let url = `${API_BASE}/api/analysis?formation_a=${encodeURIComponent(fmtA)}`;
+      if (!overall) url += `&formation_b=${encodeURIComponent(fmtB)}`;
       const resp = await fetch(url);
 
       if (!resp.ok) {
@@ -372,7 +376,9 @@
       const data = await resp.json();
 
       if (!data.total) {
-        renderNoData(fmtA, fmtB);
+        renderNoData(fmtA, overall ? null : fmtB);
+      } else if (data.mode === 'overall') {
+        renderOverall(data);
       } else {
         renderStats(data);
         renderAnalysis(data.analysis, fmtA, fmtB);
@@ -405,6 +411,59 @@
       </div>
       <p class="analysis" id="analysisText" style="opacity:.4">Carregando…</p>
       <p class="sample"   id="sampleText"></p>`;
+  }
+
+  // ── Modo geral: uma formação contra todas as outras ───────────────────────
+
+  function renderOverallLoading(fmt) {
+    $('result').innerHTML = `
+      <div class="fmt-labels">
+        <span class="fmt-label a">${esc(fmt)} · Vitórias</span>
+        <span class="fmt-label draw">Empates</span>
+        <span class="fmt-label b">Derrotas</span>
+      </div>
+      <div class="bar">
+        <div class="bar-seg a"    style="flex:1"></div>
+        <div class="bar-seg draw" style="flex:1"></div>
+        <div class="bar-seg b"    style="flex:1"></div>
+      </div>
+      <p class="sample" style="opacity:.4">Carregando…</p>`;
+  }
+
+  function renderOverall(s) {
+    const seg = (cls, flex, txt, min) =>
+      `<div class="bar-seg ${cls}" style="flex:${flex}">${flex >= min ? txt : ''}</div>`;
+
+    const period = s.min_season === s.max_season
+      ? String(s.min_season)
+      : `${s.min_season}–${s.max_season}`;
+
+    const teams = (s.teams || []).map((t, i) => `
+      <div class="team-row">
+        <span class="team-rank">${i + 1}</span>
+        ${t.logo_url ? `<img class="team-logo" src="${esc(t.logo_url)}" alt="" loading="lazy">` : '<span class="team-logo"></span>'}
+        <span class="team-name">${esc(t.name)}</span>
+        <span class="team-stat">${t.games} jogos · <strong>${t.pct_win}%</strong></span>
+      </div>`).join('');
+
+    $('result').innerHTML = `
+      <div class="fmt-labels">
+        <span class="fmt-label a">${esc(s.formation)} · Vitórias</span>
+        <span class="fmt-label draw">Empates</span>
+        <span class="fmt-label b">Derrotas</span>
+      </div>
+      <div class="bar">
+        ${seg('a',    s.pct_win,  s.pct_win  + '%', 15)}
+        ${seg('draw', s.pct_draw, s.pct_draw + '%', 10)}
+        ${seg('b',    s.pct_loss, s.pct_loss + '%', 15)}
+      </div>
+      <div class="pcts">
+        <span class="pct a">${s.pct_win}%</span>
+        <span class="pct draw">${s.pct_draw}%</span>
+        <span class="pct b">${s.pct_loss}%</span>
+      </div>
+      <p class="sample">${s.total} partida${s.total !== 1 ? 's' : ''} · Série A ${period} · média ${s.avg_goals} gols/jogo</p>
+      ${teams ? `<div class="teams-title">Times que mais usam ${esc(s.formation)}</div>${teams}` : ''}`;
   }
 
   function renderStats(s) {
@@ -500,9 +559,12 @@
   }
 
   function renderNoData(fmtA, fmtB) {
+    const alvo = fmtB
+      ? `<strong>${esc(fmtA)}</strong> vs <strong>${esc(fmtB)}</strong>`
+      : `<strong>${esc(fmtA)}</strong>`;
     $('result').innerHTML = `
       <div class="no-data">
-        <p>Nenhuma partida encontrada para <strong>${esc(fmtA)}</strong> vs <strong>${esc(fmtB)}</strong>.</p>
+        <p>Nenhuma partida encontrada para ${alvo}.</p>
         <br>
         <p>Execute <code>node seed.js</code> para popular o banco.</p>
       </div>`;
