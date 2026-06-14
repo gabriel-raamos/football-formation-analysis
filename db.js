@@ -300,6 +300,63 @@ async function getFormationOverall(formation) {
 }
 
 /**
+ * Times que mais usam uma formação ("domina o uso"), com aproveitamento.
+ * Ordena por número de jogos (uso) e desempata por taxa de vitória.
+ *
+ * @param {string} formation
+ * @param {{ limit?: number }} [opts]
+ * @returns {Promise<{
+ *   team_id: number, name: string, logo_url: string,
+ *   games: number, wins: number, draws: number, losses: number, pct_win: number
+ * }[]>}
+ */
+async function getTopTeamsForFormation(formation, { limit = 10 } = {}) {
+  const { rows } = await pool.query(
+    `WITH team_games AS (
+       SELECT
+         fl.team_id,
+         CASE WHEN fl.team_id = f.home_team_id THEN f.home_winner ELSE f.away_winner END AS won,
+         f.home_winner,
+         f.goals_home
+       FROM fixture_lineups fl
+       JOIN fixtures f ON f.id = fl.fixture_id
+       WHERE fl.formation = $1
+         AND f.status = 'FT'
+         AND fl.team_id IN (f.home_team_id, f.away_team_id)
+     )
+     SELECT
+       t.id                                                       AS team_id,
+       t.name                                                     AS name,
+       t.logo_url                                                 AS logo_url,
+       COUNT(*)::int                                              AS games,
+       SUM(CASE WHEN tg.won = TRUE THEN 1 ELSE 0 END)::int        AS wins,
+       SUM(CASE
+         WHEN tg.home_winner IS NULL
+          AND tg.goals_home IS NOT NULL THEN 1
+         ELSE 0 END)::int                                         AS draws,
+       SUM(CASE
+         WHEN tg.won = FALSE THEN 1 ELSE 0 END)::int              AS losses
+     FROM team_games tg
+     JOIN teams t ON t.id = tg.team_id
+     GROUP BY t.id, t.name, t.logo_url
+     ORDER BY games DESC, wins DESC
+     LIMIT $2`,
+    [formation, limit],
+  );
+
+  return rows.map((r) => ({
+    team_id:  parseInt(r.team_id),
+    name:     r.name,
+    logo_url: r.logo_url,
+    games:    r.games,
+    wins:     r.wins,
+    draws:    r.draws,
+    losses:   r.losses,
+    pct_win:  r.games ? parseFloat(((r.wins / r.games) * 100).toFixed(1)) : 0,
+  }));
+}
+
+/**
  * Retorna o texto de análise de IA em cache para um par de formações.
  * Sempre consulta na ordem canônica (alfabética) para que A vs B = B vs A.
  *
@@ -343,6 +400,8 @@ module.exports = {
   saveLineups,
   getStats,
   getFormationStats,
+  getFormationOverall,
+  getTopTeamsForFormation,
   getCachedAnalysis,
   saveAnalysis,
 };
