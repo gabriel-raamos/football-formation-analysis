@@ -70,4 +70,4 @@ async function streamAnalysis(stats, sseFn) {
   }
 }
 
-module.exports = { streamAnalysis };
+module.exports = { streamAnalysis, buildPrompt };
