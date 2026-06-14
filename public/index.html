@@ -36,7 +36,7 @@
 
     main {
       width: 100%;
-      max-width: 480px;
+      max-width: clamp(480px, 92vw, 1100px);
     }
 
     /* ── Header ─────────────────────────────────── */
@@ -191,7 +191,26 @@
     .pct.draw { color: var(--muted); text-align: center; flex: 1; }
     .pct.b    { color: var(--orange); text-align: right; }
 
-    /* AI analysis */
+    /* ── Layout duas colunas (stats | análise) ─────── */
+    .result-grid { display: contents; }
+    .result-stats, .result-analysis { min-width: 0; }
+
+    @media (min-width: 680px) {
+      .result-grid {
+        display: grid;
+        grid-template-columns: 340px 1fr;
+        gap: 2rem;
+        align-items: start;
+      }
+      /* Na coluna direita a análise não precisa de borda-topo */
+      .result-analysis .analysis {
+        border-top: none;
+        padding-top: 0;
+        margin-bottom: 0;
+      }
+    }
+
+    /* ── AI analysis ────────────────────────────────── */
     .analysis {
       font-size: .9rem;
       line-height: 1.65;
@@ -209,43 +228,38 @@
       color: var(--muted);
     }
     @keyframes blink { 50% { opacity: 0; } }
-    .analysis-top {
-      border-top: none;
-      border-bottom: 1px solid var(--border);
-      padding-top: 0;
-      padding-bottom: 1rem;
-      margin-bottom: 1.25rem;
+
+    /* Cada seção principal — card com fundo sutil */
+    .analysis-main {
+      background: rgba(255,255,255,.03);
+      border: 1px solid rgba(48,54,61,.95);
+      border-radius: 8px;
+      padding: .65rem .85rem;
+      margin: .5rem 0 0;
+      line-height: 1.6;
     }
-    .analysis p { margin: .45rem 0; }
-    .analysis p:first-child { margin-top: 0; }
-    .analysis p:last-child  { margin-bottom: 0; }
-    .analysis-top p { margin: .45rem 0; }
-    .analysis-top p:first-child { margin-top: 0; }
-    .analysis-top p:last-child  { margin-bottom: 0; }
-    /* Seções principais — cada uma separada por uma linha */
-    .analysis-main { margin: 0 0 .45rem; }
-    .analysis-sep  {
-      border-top: 1px solid var(--border);
-      padding-top: .7rem;
-      margin-top:  .7rem !important;
-    }
+    .analysis-main:first-child { margin-top: 0; }
+
     /* Cabeçalho da seção de ligas */
     .analysis-header {
       border-top: 1px solid var(--border);
-      padding-top: .75rem;
-      margin-top: .9rem !important;
-      margin-bottom: .35rem !important;
-      font-size: .72rem;
+      padding-top: .8rem;
+      margin-top: 1rem !important;
+      margin-bottom: .4rem !important;
+      font-size: .7rem;
       font-weight: 700;
       text-transform: uppercase;
-      letter-spacing: .07em;
+      letter-spacing: .08em;
       color: var(--muted);
     }
-    /* Itens individuais de liga — agrupados e compactos */
+
+    /* Itens de liga — agrupados, accent azul */
     .analysis-league {
-      margin: .25rem 0 !important;
-      padding-left: .65rem;
-      border-left: 2px solid var(--border);
+      background: rgba(88,166,255,.05);
+      border-left: 2px solid rgba(88,166,255,.35);
+      border-radius: 0 6px 6px 0;
+      margin: .3rem 0 !important;
+      padding: .3rem .7rem;
       font-size: .85rem;
     }
 
@@ -885,41 +899,52 @@
 
   function renderLoading(fmtA, fmtB) {
     $('result').innerHTML = `
-      <div class="fmt-labels">
-        <span class="fmt-label a">${esc(fmtA)}</span>
-        <span class="fmt-label draw">Empate</span>
-        <span class="fmt-label b">${esc(fmtB)}</span>
-      </div>
-      <div class="bar">
-        <div class="bar-seg a"    style="flex:1"></div>
-        <div class="bar-seg draw" style="flex:1"></div>
-        <div class="bar-seg b"    style="flex:1"></div>
-      </div>
-      <div class="pcts">
-        <span class="pct a">–</span>
-        <span class="pct draw">–</span>
-        <span class="pct b">–</span>
-      </div>
-      <div class="analysis" id="analysisText" style="opacity:.4">Carregando…</div>
-      <p class="sample"   id="sampleText"></p>
-      <div id="leagueTeams" class="matchup-leagues"></div>`;
+      <div class="result-grid">
+        <div class="result-stats">
+          <div class="fmt-labels">
+            <span class="fmt-label a">${esc(fmtA)}</span>
+            <span class="fmt-label draw">Empate</span>
+            <span class="fmt-label b">${esc(fmtB)}</span>
+          </div>
+          <div class="bar">
+            <div class="bar-seg a"    style="flex:1"></div>
+            <div class="bar-seg draw" style="flex:1"></div>
+            <div class="bar-seg b"    style="flex:1"></div>
+          </div>
+          <div class="pcts">
+            <span class="pct a">–</span>
+            <span class="pct draw">–</span>
+            <span class="pct b">–</span>
+          </div>
+          <p class="sample" id="sampleText"></p>
+          <div id="leagueTeams" class="matchup-leagues"></div>
+        </div>
+        <div class="result-analysis">
+          <div class="analysis" id="analysisText" style="opacity:.4">Carregando…</div>
+        </div>
+      </div>`;
   }
 
   // ── Modo geral: uma formação contra todas as outras ───────────────────────
 
   function renderOverallLoading(fmt) {
     $('result').innerHTML = `
-      <div class="fmt-labels">
-        <span class="fmt-label a">${esc(fmt)} · Vitórias</span>
-        <span class="fmt-label draw">Empates</span>
-        <span class="fmt-label b">Derrotas</span>
-      </div>
-      <div class="bar">
-        <div class="bar-seg a"    style="flex:1"></div>
-        <div class="bar-seg draw" style="flex:1"></div>
-        <div class="bar-seg b"    style="flex:1"></div>
-      </div>
-      <p class="sample" style="opacity:.4">Carregando…</p>`;
+      <div class="result-grid">
+        <div class="result-stats">
+          <div class="fmt-labels">
+            <span class="fmt-label a">${esc(fmt)} · Vitórias</span>
+            <span class="fmt-label draw">Empates</span>
+            <span class="fmt-label b">Derrotas</span>
+          </div>
+          <div class="bar">
+            <div class="bar-seg a"    style="flex:1"></div>
+            <div class="bar-seg draw" style="flex:1"></div>
+            <div class="bar-seg b"    style="flex:1"></div>
+          </div>
+          <p class="sample" style="opacity:.4">Carregando…</p>
+        </div>
+        <div class="result-analysis"></div>
+      </div>`;
   }
 
   // Retorna Set com nomes das ligas selecionadas, ou null quando todas estão ativas.
@@ -952,9 +977,7 @@
         continue;
       }
       if (mContent) {
-        mainCount++;
-        const cls = mainCount > 1 ? 'analysis-main analysis-sep' : 'analysis-main';
-        mainParts.push(`<p class="${cls}"><strong>${esc(mContent[1])}:</strong> ${esc(mContent[2])}</p>`);
+        mainParts.push(`<p class="analysis-main"><strong>${esc(mContent[1])}:</strong> ${esc(mContent[2])}</p>`);
         continue;
       }
       mainParts.push(`<p>${esc(l)}</p>`);
@@ -1001,24 +1024,30 @@
     }
 
     $('result').innerHTML = `
-      <div class="fmt-labels">
-        <span class="fmt-label a">${esc(s.formation)} · Vitórias</span>
-        <span class="fmt-label draw">Empates</span>
-        <span class="fmt-label b">Derrotas</span>
-      </div>
-      <div class="bar">
-        ${seg('a',    s.pct_win,  s.pct_win  + '%', 15)}
-        ${seg('draw', s.pct_draw, s.pct_draw + '%', 10)}
-        ${seg('b',    s.pct_loss, s.pct_loss + '%', 15)}
-      </div>
-      <div class="pcts">
-        <span class="pct a">${s.pct_win}%</span>
-        <span class="pct draw">${s.pct_draw}%</span>
-        <span class="pct b">${s.pct_loss}%</span>
-      </div>
-      ${analysisContent}
-      <p class="sample">${s.total} partida${s.total !== 1 ? 's' : ''} · média ${s.avg_goals} gols/jogo</p>
-      ${teams ? `<div class="teams-title">Times que mais usam ${esc(s.formation)}</div>${teams}` : ''}`;
+      <div class="result-grid">
+        <div class="result-stats">
+          <div class="fmt-labels">
+            <span class="fmt-label a">${esc(s.formation)} · Vitórias</span>
+            <span class="fmt-label draw">Empates</span>
+            <span class="fmt-label b">Derrotas</span>
+          </div>
+          <div class="bar">
+            ${seg('a',    s.pct_win,  s.pct_win  + '%', 15)}
+            ${seg('draw', s.pct_draw, s.pct_draw + '%', 10)}
+            ${seg('b',    s.pct_loss, s.pct_loss + '%', 15)}
+          </div>
+          <div class="pcts">
+            <span class="pct a">${s.pct_win}%</span>
+            <span class="pct draw">${s.pct_draw}%</span>
+            <span class="pct b">${s.pct_loss}%</span>
+          </div>
+          <p class="sample">${s.total} partida${s.total !== 1 ? 's' : ''} · média ${s.avg_goals} gols/jogo</p>
+          ${teams ? `<div class="teams-title">Times que mais usam ${esc(s.formation)}</div>${teams}` : ''}
+        </div>
+        <div class="result-analysis">
+          ${analysisContent}
+        </div>
+      </div>`;
 
     if (isLocal && !s.analysis) {
       const btn = $('btnGenerateOverview');
