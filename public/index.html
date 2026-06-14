@@ -340,6 +340,11 @@
       overflow: hidden;
       text-overflow: ellipsis;
     }
+    .fmt-mono {
+      font-family: 'Fira Code', 'SF Mono', 'Consolas', monospace;
+      font-size: .82rem;
+      letter-spacing: .03em;
+    }
     .team-stat {
       font-size: .75rem;
       color: var(--muted);
@@ -1021,6 +1026,20 @@
         <span class="team-stat">${t.wins}V · ${t.draws}E · ${t.losses}D · <strong>${t.pct_win}%</strong></span>
       </div>`).join('');
 
+    // Formações que mais perderam contra esta — pior desempenho = maior vitória da selecionada
+    const worstMatchups = (s.matchups || []).map((m, i) => {
+      const oppWins = m.losses;   // vitórias da formação adversária
+      const oppDraws = m.draws;
+      const oppLosses = m.wins;   // derrotas da formação adversária
+      const oppPct = m.total ? parseFloat(((oppWins / m.total) * 100).toFixed(1)) : 0;
+      return `
+        <div class="team-row">
+          <span class="team-rank">${i + 1}</span>
+          <span class="team-name fmt-mono">${esc(m.opponent_formation)}</span>
+          <span class="team-stat">${oppWins}V ${oppDraws}E ${oppLosses}D · <strong>${oppPct}%</strong></span>
+        </div>`;
+    }).join('');
+
     const isLocal = ['localhost', '127.0.0.1'].includes(location.hostname);
     let analysisContent;
     if (s.analysis) {
@@ -1059,6 +1078,7 @@
           </div>
           <p class="sample">${s.total} partida${s.total !== 1 ? 's' : ''} · média ${s.avg_goals} gols/jogo</p>
           ${teams ? `<div class="teams-title">Times que mais usam ${esc(s.formation)}</div>${teams}` : ''}
+          ${worstMatchups ? `<div class="teams-title" style="margin-top:1.25rem">Formações com mais dificuldade contra ${esc(s.formation)}</div>${worstMatchups}` : ''}
         </div>
         <div class="result-analysis">
           ${analysisContent}
