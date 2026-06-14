@@ -232,6 +232,53 @@
       color: var(--text);
     }
 
+    /* ── Leaderboard de times (modo geral) ──────── */
+    .teams-title {
+      font-size: .7rem;
+      font-weight: 700;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      color: var(--muted);
+      border-top: 1px solid var(--border);
+      padding-top: 1rem;
+      margin-bottom: .75rem;
+    }
+    .team-row {
+      display: flex;
+      align-items: center;
+      gap: .6rem;
+      padding: .4rem 0;
+    }
+    .team-rank {
+      font-size: .75rem;
+      font-weight: 700;
+      color: var(--muted);
+      width: 1.2rem;
+      text-align: right;
+      flex-shrink: 0;
+    }
+    .team-logo {
+      width: 22px;
+      height: 22px;
+      object-fit: contain;
+      flex-shrink: 0;
+    }
+    .team-name {
+      flex: 1;
+      font-size: .85rem;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .team-stat {
+      font-size: .75rem;
+      color: var(--muted);
+      font-family: 'SF Mono', monospace;
+      flex-shrink: 0;
+    }
+    .team-stat strong { color: var(--blue); font-weight: 700; }
+
   </style>
 </head>
 <body>
