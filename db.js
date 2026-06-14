@@ -550,26 +550,38 @@ async function getTeamsPerLeagueForMatchup(formationA, formationB, leagueIds = n
        FROM team_games tg
        GROUP BY tg.league_id, tg.team_id, tg.formation
      ),
-     ranked AS (
-       SELECT
-         ts.*,
-         t.name     AS team_name,
-         t.logo_url,
-         l.name     AS league_name,
-         ROUND(100.0 * ts.wins / NULLIF(ts.games, 0))::int AS pct_win,
-         ROW_NUMBER() OVER (
-           PARTITION BY ts.league_id, ts.formation
-           ORDER BY ts.wins DESC, ts.games DESC
-         ) AS rn
+     -- Coluna A: times com mais SUCESSO usando formação A contra B (wins DESC)
+     ranked_a AS (
+       SELECT ts.*, t.name AS team_name, t.logo_url, l.name AS league_name,
+              ROUND(100.0 * ts.wins / NULLIF(ts.games, 0))::int AS pct_win,
+              ROW_NUMBER() OVER (
+                PARTITION BY ts.league_id ORDER BY ts.wins DESC, ts.games DESC
+              ) AS rn
        FROM team_stats ts
        JOIN teams t ON t.id = ts.team_id
        JOIN leagues l ON l.id = ts.league_id
+       WHERE ts.formation = $1
+     ),
+     -- Coluna B: times com mais FRACASSO usando formação B contra A (losses DESC)
+     ranked_b AS (
+       SELECT ts.*, t.name AS team_name, t.logo_url, l.name AS league_name,
+              ROUND(100.0 * ts.wins / NULLIF(ts.games, 0))::int AS pct_win,
+              ROW_NUMBER() OVER (
+                PARTITION BY ts.league_id ORDER BY ts.losses DESC, ts.games DESC
+              ) AS rn
+       FROM team_stats ts
+       JOIN teams t ON t.id = ts.team_id
+       JOIN leagues l ON l.id = ts.league_id
+       WHERE ts.formation = $2
      )
      SELECT league_id, league_name, team_id, team_name, logo_url,
-            formation, games, wins, draws, losses, pct_win
-     FROM ranked
-     WHERE rn <= 5
-     ORDER BY league_name, formation, rn`,
+            formation, games, wins, draws, losses, pct_win, rn, 1 AS col_order
+     FROM ranked_a WHERE rn <= 5
+     UNION ALL
+     SELECT league_id, league_name, team_id, team_name, logo_url,
+            formation, games, wins, draws, losses, pct_win, rn, 2 AS col_order
+     FROM ranked_b WHERE rn <= 5
+     ORDER BY league_name, col_order, rn`,
     [formationA, formationB,
      leagueIds && leagueIds.length ? leagueIds : null,
      seasons  && seasons.length  ? seasons  : null],

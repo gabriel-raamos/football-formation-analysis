@@ -316,10 +316,13 @@
     .matchup-cols { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
     .matchup-col-title {
       font-size: .72rem; font-weight: 700; color: var(--blue);
-      margin-bottom: .25rem; padding-bottom: .2rem;
-      border-bottom: 1px solid var(--border);
+      margin-bottom: .1rem;
     }
     .matchup-col-title.b { color: var(--orange); }
+    .matchup-col-sub {
+      font-size: .62rem; color: var(--muted); margin-bottom: .3rem;
+      padding-bottom: .2rem; border-bottom: 1px solid var(--border);
+    }
     .matchup-col .team-row  { padding: .2rem 0; gap: .4rem; }
     .matchup-col .team-name { font-size: .78rem; }
     .matchup-col .team-stat { font-size: .63rem; letter-spacing: -.01em; }
@@ -996,10 +999,12 @@
         <div class="matchup-cols">
           <div class="matchup-col">
             <div class="matchup-col-title a">${esc(fmtA)}</div>
+            <div class="matchup-col-sub">mais vitórias contra ${esc(fmtB)}</div>
             ${a.length ? a.map(renderTeamRow).join('') : '<p class="sample">—</p>'}
           </div>
           <div class="matchup-col">
             <div class="matchup-col-title b">${esc(fmtB)}</div>
+            <div class="matchup-col-sub">mais derrotas contra ${esc(fmtA)}</div>
             ${b.length ? b.map(renderTeamRow).join('') : '<p class="sample">—</p>'}
           </div>
         </div>
