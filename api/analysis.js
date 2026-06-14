@@ -4,6 +4,7 @@
 // Não depende de servidor local nem de Ollama.
 
 const { Pool } = require('pg');
+const { leagueName } = require('../leagues');
 
 let _pool;
 function getPool() {
@@ -311,7 +312,7 @@ async function getTeamsPerLeagueForMatchup(formationA, formationB, leagueIds = n
 
   return rows.map(r => ({
     league_id:   parseInt(r.league_id),
-    league_name: r.league_name,
+    league_name: leagueName(parseInt(r.league_id)),
     team_id:     parseInt(r.team_id),
     team_name:   r.team_name,
     logo_url:    r.logo_url,

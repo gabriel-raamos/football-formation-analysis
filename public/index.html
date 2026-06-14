@@ -1031,12 +1031,12 @@
     const el = $('leagueTeams');
     if (!el || !rows || !rows.length) return;
 
-    // Agrupa por liga mantendo a ordem original (league_name já vem ordenado)
+    // Agrupa por league_id (não por league_name) para evitar fusão de ligas homônimas
     const leagueMap = new Map();
     for (const t of rows) {
-      if (!leagueMap.has(t.league_name)) leagueMap.set(t.league_name, { a: [], b: [] });
-      if (t.formation === fmtA) leagueMap.get(t.league_name).a.push(t);
-      else                      leagueMap.get(t.league_name).b.push(t);
+      if (!leagueMap.has(t.league_id)) leagueMap.set(t.league_id, { name: t.league_name, a: [], b: [] });
+      if (t.formation === fmtA) leagueMap.get(t.league_id).a.push(t);
+      else                      leagueMap.get(t.league_id).b.push(t);
     }
 
     const renderTeamRow = (t, i) => `
@@ -1047,9 +1047,9 @@
         <span class="team-stat"><strong>${t.pct_win}%</strong> · ${t.wins}V ${t.draws}E ${t.losses}D</span>
       </div>`;
 
-    el.innerHTML = [...leagueMap.entries()].map(([leagueName, { a, b }]) => `
+    el.innerHTML = [...leagueMap.entries()].map(([, { name, a, b }]) => `
       <div class="matchup-league">
-        <div class="matchup-league-name">${esc(leagueName)}</div>
+        <div class="matchup-league-name">${esc(name)}</div>
         <div class="matchup-cols">
           <div class="matchup-col">
             <div class="matchup-col-title a">${esc(fmtA)}</div>

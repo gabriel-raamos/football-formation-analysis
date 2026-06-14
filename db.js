@@ -1,7 +1,7 @@
 'use strict';
 require('dotenv').config();
 const { Pool } = require('pg');
-const { LEAGUES } = require('./leagues');
+const { LEAGUES, leagueName } = require('./leagues');
 
 // ─── Connection pool ──────────────────────────────────────────────────────────
 // Supabase usa TLS obrigatório; rejectUnauthorized:false aceita o certificado
@@ -589,7 +589,7 @@ async function getTeamsPerLeagueForMatchup(formationA, formationB, leagueIds = n
 
   return rows.map(r => ({
     league_id:   parseInt(r.league_id),
-    league_name: r.league_name,
+    league_name: leagueName(parseInt(r.league_id)),
     team_id:     parseInt(r.team_id),
     team_name:   r.team_name,
     logo_url:    r.logo_url,
@@ -661,7 +661,7 @@ async function getMatchupStatsPerLeague(formationA, formationB, leagueIds = null
     const pct    = (n) => parseFloat(((n / total) * 100).toFixed(1));
     return {
       league_id:   parseInt(r.league_id),
-      league_name: r.league_name,
+      league_name: leagueName(parseInt(r.league_id)),
       total,
       wins_a,
       wins_b,
@@ -730,7 +730,7 @@ async function getOverviewStatsPerLeague(formation, leagueIds = null, seasons = 
     const pct    = (n) => parseFloat(((n / total) * 100).toFixed(1));
     return {
       league_id:   parseInt(r.league_id),
-      league_name: r.league_name,
+      league_name: leagueName(parseInt(r.league_id)),
       total,
       wins,
       draws,
