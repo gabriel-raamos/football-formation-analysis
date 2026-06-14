@@ -8,6 +8,9 @@ const ai      = require('./ai');
 const app  = express();
 const PORT = process.env.PORT || 3000;
 
+// Formação válida: 3 ou 4 setores numéricos (ex.: 4-3-3, 4-2-3-1).
+const isValidFormation = (f) => /^\d-\d(-\d){1,2}$/.test(f);
+
 app.use((_req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   next();
@@ -22,16 +25,28 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.get('/api/analysis', async (req, res) => {
   const { formation_a, formation_b } = req.query;
 
-  if (!formation_a || !formation_b) {
-    return res.status(400).json({ error: 'formation_a e formation_b são obrigatórios.' });
+  if (!formation_a || !isValidFormation(formation_a)) {
+    return res.status(400).json({ error: 'formation_a é obrigatória e deve ter o formato 4-3-3.' });
+  }
+  if (formation_b && !isValidFormation(formation_b)) {
+    return res.status(400).json({ error: 'formation_b inválida — use o formato 4-3-3.' });
   }
 
   try {
+    // Sem formation_b → modo "geral": a formação contra todas as outras + times que dominam.
+    if (!formation_b) {
+      const [overall, teams] = await Promise.all([
+        db.getFormationOverall(formation_a),
+        db.getTopTeamsForFormation(formation_a),
+      ]);
+      return res.json({ mode: 'overall', ...overall, teams });
+    }
+
     const [stats, analysis] = await Promise.all([
       db.getFormationStats(formation_a, formation_b),
       db.getCachedAnalysis(formation_a, formation_b),
     ]);
-    res.json({ ...stats, analysis });
+    res.json({ mode: 'matchup', ...stats, analysis });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
