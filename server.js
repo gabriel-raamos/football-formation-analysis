@@ -11,6 +11,13 @@ const PORT = process.env.PORT || 3000;
 // Formação válida: 3 ou 4 setores numéricos (ex.: 4-3-3, 4-2-3-1).
 const isValidFormation = (f) => /^\d-\d(-\d){1,2}$/.test(f);
 
+// Filtro de ligas: "71,39" → [71, 39]; vazio/ausente → null (todas as ligas).
+const parseLeagues = (v) => {
+  if (!v) return null;
+  const ids = String(v).split(',').map((s) => parseInt(s, 10)).filter(Number.isInteger);
+  return ids.length ? ids : null;
+};
+
 app.use((_req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   next();
@@ -32,18 +39,20 @@ app.get('/api/analysis', async (req, res) => {
     return res.status(400).json({ error: 'formation_b inválida — use o formato 4-3-3.' });
   }
 
+  const leagues = parseLeagues(req.query.leagues);
+
   try {
     // Sem formation_b → modo "geral": a formação contra todas as outras + times que dominam.
     if (!formation_b) {
       const [overall, teams] = await Promise.all([
-        db.getFormationOverall(formation_a),
-        db.getTopTeamsForFormation(formation_a),
+        db.getFormationOverall(formation_a, leagues),
+        db.getTopTeamsForFormation(formation_a, { leagueIds: leagues }),
       ]);
       return res.json({ mode: 'overall', ...overall, teams });
     }
 
     const [stats, analysis] = await Promise.all([
-      db.getFormationStats(formation_a, formation_b),
+      db.getFormationStats(formation_a, formation_b, leagues),
       db.getCachedAnalysis(formation_a, formation_b),
     ]);
     res.json({ mode: 'matchup', ...stats, analysis });
@@ -96,6 +105,17 @@ app.get('/api/generate', async (req, res) => {
 
   write('done', {});
   res.end();
+});
+
+// ─── GET /api/leagues ──────────────────────────────────────────────────────────
+// Campeonatos conhecidos + contagem de jogos com escalação (alimenta o filtro).
+
+app.get('/api/leagues', async (_req, res) => {
+  try {
+    res.json(await db.getLeagues());
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // ─── GET /api/stats ───────────────────────────────────────────────────────────

@@ -19,7 +19,7 @@ function getPool() {
 
 // ─── Stats query ──────────────────────────────────────────────────────────────
 
-async function getStats(formA, formB) {
+async function getStats(formA, formB, leagueIds = null) {
   const { rows } = await getPool().query(
     `WITH matchups AS (
        SELECT
@@ -35,6 +35,7 @@ async function getStats(formA, formB) {
            (lh.formation = $1 AND la.formation = $2) OR
            (lh.formation = $2 AND la.formation = $1)
          )
+         AND ($3::int[] IS NULL OR f.league_id = ANY($3::int[]))
      )
      SELECT
        COUNT(*)::int                                             AS total,
@@ -54,7 +55,7 @@ async function getStats(formA, formB) {
        MIN(season)::int                                         AS min_season,
        MAX(season)::int                                         AS max_season
      FROM matchups`,
-    [formA, formB],
+    [formA, formB, leagueIds && leagueIds.length ? leagueIds : null],
   );
 
   const r = rows[0];
@@ -79,7 +80,7 @@ async function getStats(formA, formB) {
 
 // ─── Modo "geral": formação contra todas as outras ───────────────────────────
 
-async function getOverall(formation) {
+async function getOverall(formation, leagueIds = null) {
   const { rows } = await getPool().query(
     `WITH matchups AS (
        SELECT
@@ -91,6 +92,7 @@ async function getOverall(formation) {
        JOIN fixture_lineups la ON la.fixture_id = f.id AND la.team_id = f.away_team_id
        WHERE f.status = 'FT'
          AND (lh.formation = $1 OR la.formation = $1)
+         AND ($2::int[] IS NULL OR f.league_id = ANY($2::int[]))
      )
      SELECT
        COUNT(*)::int                                            AS total,
@@ -109,7 +111,7 @@ async function getOverall(formation) {
        MIN(season)::int                                        AS min_season,
        MAX(season)::int                                        AS max_season
      FROM matchups`,
-    [formation],
+    [formation, leagueIds && leagueIds.length ? leagueIds : null],
   );
 
   const r = rows[0];
@@ -131,7 +133,7 @@ async function getOverall(formation) {
   };
 }
 
-async function getTopTeams(formation, limit = 10) {
+async function getTopTeams(formation, limit = 10, leagueIds = null) {
   const { rows } = await getPool().query(
     `WITH team_games AS (
        SELECT
@@ -143,6 +145,7 @@ async function getTopTeams(formation, limit = 10) {
        WHERE fl.formation = $1
          AND f.status = 'FT'
          AND fl.team_id IN (f.home_team_id, f.away_team_id)
+         AND ($3::int[] IS NULL OR f.league_id = ANY($3::int[]))
      )
      SELECT
        t.id AS team_id, t.name AS name, t.logo_url AS logo_url,
@@ -155,7 +158,7 @@ async function getTopTeams(formation, limit = 10) {
      GROUP BY t.id, t.name, t.logo_url
      ORDER BY games DESC, wins DESC
      LIMIT $2`,
-    [formation, limit],
+    [formation, limit, leagueIds && leagueIds.length ? leagueIds : null],
   );
 
   return rows.map((r) => ({
@@ -185,6 +188,11 @@ async function getCachedAnalysis(formA, formB) {
 // ─── Handler ──────────────────────────────────────────────────────────────────
 
 const isValidFormation = (f) => /^\d-\d(-\d){1,2}$/.test(f);
+const parseLeagues = (v) => {
+  if (!v) return null;
+  const ids = String(v).split(',').map((s) => parseInt(s, 10)).filter(Number.isInteger);
+  return ids.length ? ids : null;
+};
 
 module.exports = async (req, res) => {
   const { formation_a, formation_b } = req.query;
@@ -199,18 +207,20 @@ module.exports = async (req, res) => {
     return res.status(400).json({ error: 'formation_b inválida — use o formato 4-3-3.' });
   }
 
+  const leagues = parseLeagues(req.query.leagues);
+
   try {
     // Sem formation_b → modo "geral": a formação contra todas as outras + times que dominam.
     if (!formation_b) {
       const [overall, teams] = await Promise.all([
-        getOverall(formation_a),
-        getTopTeams(formation_a),
+        getOverall(formation_a, leagues),
+        getTopTeams(formation_a, 10, leagues),
       ]);
       return res.json({ mode: 'overall', ...overall, teams });
     }
 
     const [stats, analysis] = await Promise.all([
-      getStats(formation_a, formation_b),
+      getStats(formation_a, formation_b, leagues),
       getCachedAnalysis(formation_a, formation_b),
     ]);
 
