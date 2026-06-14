@@ -4,7 +4,8 @@
   "description": "Busca de partidas do Brasileirão Série A por formação tática",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "generate-analyses": "node scripts/generate-analyses.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.104.1",
