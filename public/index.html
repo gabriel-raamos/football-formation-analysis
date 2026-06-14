@@ -960,8 +960,10 @@
   function analysisToHtml(text, allowedLeagues) {
     const lines = (text || '').split('\n').filter(l => l.trim());
     if (!lines.length) return `<p>${esc(text)}</p>`;
+    // Nomes canônicos de todas as ligas conhecidas — usado para identificar
+    // linhas de liga mesmo quando o modelo omite o cabeçalho "Efetividade por liga:".
+    const allLeagueNames = new Set(LEAGUES.map(l => l.name));
     let inLeague    = false;
-    let mainCount   = 0;
     let leagueTitle = 'Efetividade por liga';
     const mainParts   = [];
     const leagueParts = [];
@@ -970,13 +972,17 @@
       const mContent = l.match(/^([^:]{2,60}):\s*(.+)/s);
       const mHeader  = l.match(/^([^:]{2,60}):\s*$/);
       if (mHeader)  { inLeague = true; leagueTitle = mHeader[1]; continue; }
-      if (inLeague && mContent) {
-        const name = mContent[1].trim();
-        if (!allowedLeagues || allowedLeagues.has(name))
-          leagueParts.push(`<p class="analysis-league"><strong>${esc(mContent[1])}:</strong> ${esc(mContent[2])}</p>`);
-        continue;
-      }
       if (mContent) {
+        const name = mContent[1].trim();
+        // Considera linha de liga se: já estamos em modo liga OU o label bate
+        // com um nome canônico de liga (modelo pode omitir o header).
+        const isLeagueLine = inLeague || allLeagueNames.has(name);
+        if (isLeagueLine) {
+          inLeague = true;
+          if (!allowedLeagues || allowedLeagues.has(name))
+            leagueParts.push(`<p class="analysis-league"><strong>${esc(mContent[1])}:</strong> ${esc(mContent[2])}</p>`);
+          continue;
+        }
         mainParts.push(`<p class="analysis-main"><strong>${esc(mContent[1])}:</strong> ${esc(mContent[2])}</p>`);
         continue;
       }
@@ -1001,7 +1007,7 @@
       <div class="team-row">
         <span class="team-rank">${i + 1}</span>
         ${logoTag(t.logo_url, t.name)}
-        <span class="team-name">${esc(t.name)}</span>
+        <span class="team-name" title="${esc(t.name)}">${esc(t.name)}</span>
         <span class="team-stat">${t.wins}V · ${t.draws}E · ${t.losses}D · <strong>${t.pct_win}%</strong></span>
       </div>`).join('');
 
@@ -1113,7 +1119,7 @@
       <div class="team-row">
         <span class="team-rank">${i + 1}</span>
         ${logoTag(t.logo_url, t.team_name)}
-        <span class="team-name">${esc(t.team_name)}</span>
+        <span class="team-name" title="${esc(t.team_name)}">${esc(t.team_name)}</span>
         <span class="team-stat"><strong>${t.pct_win}%</strong> · ${t.wins}V ${t.draws}E ${t.losses}D</span>
       </div>`;
 
