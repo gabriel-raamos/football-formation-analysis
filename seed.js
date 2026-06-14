@@ -3,6 +3,7 @@
  *
  * Uso:
  *   node seed.js                     # todas as temporadas, até 90 chamadas de lineup
+ *   node seed.js --league 39         # outra liga (39 Premier, 140 La Liga, 135 Serie A, 78 Bundesliga, 61 Ligue 1) — default 71 (Brasileirão)
  *   node seed.js --season 2023       # apenas temporada específica
  *   node seed.js --max-calls 50      # limita chamadas de lineup (default: 90)
  *   node seed.js --fixtures-only     # apenas tabela de fixtures, sem lineups
@@ -15,10 +16,15 @@
 require('dotenv').config();
 const axios  = require('axios');
 const { Pool } = require('pg');
+const { leagueName } = require('./leagues');
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
-const LEAGUE_ID  = 71;
+// Liga a ingerir: --league <id> ou env LEAGUE_ID (default 71 = Brasileirão).
+const _leagueArg = process.argv.includes('--league')
+  ? parseInt(process.argv[process.argv.indexOf('--league') + 1], 10)
+  : null;
+const LEAGUE_ID  = _leagueArg || parseInt(process.env.LEAGUE_ID || '', 10) || 71;
 const DELAY_MS   = 310;
 const ALL_SEASONS = [2020, 2021, 2022, 2023, 2024, 2025];
 
@@ -154,7 +160,7 @@ async function upsertFixture(f, leagueRow, venueId) {
 async function seedFixtures(season) {
   // check if season already in DB
   const { rows } = await pool.query(
-    'SELECT COUNT(*)::int AS cnt FROM fixtures WHERE season = $1', [season]
+    'SELECT COUNT(*)::int AS cnt FROM fixtures WHERE season = $1 AND league_id = $2', [season, LEAGUE_ID]
   );
   const existing = rows[0].cnt;
 
@@ -256,7 +262,7 @@ async function seedLineups(maxApiCalls) {
 
 (async () => {
   log('\n═══════════════════════════════════════════════════════');
-  log('  Seed — Brasileirão Série A (2020+)');
+  log(`  Seed — ${leagueName(LEAGUE_ID)} (liga ${LEAGUE_ID}, 2020+)`);
   log('═══════════════════════════════════════════════════════\n');
 
   try {
