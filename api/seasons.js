@@ -18,9 +18,11 @@ module.exports = async (_req, res) => {
   res.setHeader('Cache-Control', 'public, max-age=3600');
   try {
     const { rows } = await getPool().query(
-      `SELECT DISTINCT season::int AS season FROM fixtures WHERE status = 'FT' ORDER BY season DESC`,
+      `SELECT season::int AS season, COUNT(DISTINCT id)::int AS games
+       FROM fixtures WHERE status = 'FT'
+       GROUP BY season ORDER BY season DESC`,
     );
-    res.json({ seasons: rows.map(r => r.season) });
+    res.json({ seasons: rows.map(r => ({ season: r.season, games: parseInt(r.games) })) });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

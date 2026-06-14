@@ -805,9 +805,11 @@ async function saveAnalysis(formA, formB, text) {
  */
 async function getSeasons() {
   const { rows } = await pool.query(
-    `SELECT DISTINCT season::int AS season FROM fixtures WHERE status = 'FT' ORDER BY season DESC`,
+    `SELECT season::int AS season, COUNT(DISTINCT id)::int AS games
+     FROM fixtures WHERE status = 'FT'
+     GROUP BY season ORDER BY season DESC`,
   );
-  return rows.map(r => r.season);
+  return rows.map(r => ({ season: r.season, games: parseInt(r.games) }));
 }
 
 module.exports = {

@@ -694,16 +694,22 @@
     updateSelectAllLeagues();
   }
 
+  let _leagueSnapshot = null;
   function openFilter() {
-    selectedLeagues = new Set(availableIds());
+    _leagueSnapshot = new Set(selectedLeagues);
     renderLeagueList();
     $('leagueModal').hidden = false;
     $('leagueList').querySelector('input:not([disabled])')?.focus();
   }
-  function closeFilter() { $('leagueModal').hidden = true; $('btnFilter').focus(); }
+  function closeFilter() {
+    if (_leagueSnapshot !== null) { selectedLeagues = _leagueSnapshot; _leagueSnapshot = null; }
+    $('leagueModal').hidden = true;
+    $('btnFilter').focus();
+  }
   function applyFilter() {
     const checks = $('leagueList').querySelectorAll('input[type=checkbox]:checked');
     selectedLeagues = new Set([...checks].map(c => parseInt(c.value, 10)));
+    _leagueSnapshot = null;
     localStorage.setItem(LS_KEY, JSON.stringify([...selectedLeagues]));
     updateFilterLabel();
     closeFilter();
@@ -719,14 +725,22 @@
   // ── Filtro de temporadas ──────────────────────────────────────────────────
 
   const LS_SEASON_KEY = 'ffa.seasons';
-  let SEASONS = [];
+  let SEASONS      = [];           // number[] — anos disponíveis
+  let SEASON_GAMES = new Map();    // Map<number, number> — jogos por ano
   let selectedSeasons = new Set();
 
   async function loadSeasons() {
     try {
-      const resp = await fetch(`${API_BASE}/api/seasons`);
-      SEASONS = (await resp.json()).seasons || [];
-    } catch { SEASONS = []; }
+      const resp  = await fetch(`${API_BASE}/api/seasons`);
+      const items = (await resp.json()).seasons || [];
+      if (items.length && typeof items[0] === 'object') {
+        SEASONS      = items.map(s => s.season);
+        SEASON_GAMES = new Map(items.map(s => [s.season, s.games]));
+      } else {
+        SEASONS      = items;
+        SEASON_GAMES = new Map();
+      }
+    } catch { SEASONS = []; SEASON_GAMES = new Map(); }
 
     let saved = null;
     try { saved = JSON.parse(localStorage.getItem(LS_SEASON_KEY)); } catch {}
@@ -754,12 +768,15 @@
       <input type="checkbox" id="chkAllSeasons" ${allChecked ? 'checked' : ''}>
       <span class="lg-name">Selecionar todos</span>
     </label>`;
-    const rows = SEASONS.map(y => `
-      <label class="league-row">
+    const rows = SEASONS.map(y => {
+      const g = SEASON_GAMES.get(y);
+      return `<label class="league-row">
         <input type="checkbox" value="${y}" ${selectedSeasons.has(y) ? 'checked' : ''}>
         <span class="lg-name">${y}</span>
+        ${g ? `<span class="lg-meta">${g} jogos</span>` : ''}
         <button type="button" class="btn-only" onclick="onlySeason(${y},event)">Somente esse</button>
-      </label>`).join('');
+      </label>`;
+    }).join('');
     $('seasonList').innerHTML = selectAllRow + rows;
 
     $('chkAllSeasons').addEventListener('change', function() {
@@ -788,16 +805,22 @@
     updateSelectAllSeasons();
   }
 
+  let _seasonSnapshot = null;
   function openSeasonFilter() {
-    selectedSeasons = new Set(SEASONS);
+    _seasonSnapshot = new Set(selectedSeasons);
     renderSeasonList();
     $('seasonModal').hidden = false;
     $('seasonList').querySelector('input')?.focus();
   }
-  function closeSeasonFilter() { $('seasonModal').hidden = true; $('btnSeasonFilter').focus(); }
+  function closeSeasonFilter() {
+    if (_seasonSnapshot !== null) { selectedSeasons = _seasonSnapshot; _seasonSnapshot = null; }
+    $('seasonModal').hidden = true;
+    $('btnSeasonFilter').focus();
+  }
   function applySeasonFilter() {
     const checks = $('seasonList').querySelectorAll('input[type=checkbox]:checked');
     selectedSeasons = new Set([...checks].map(c => parseInt(c.value, 10)));
+    _seasonSnapshot = null;
     localStorage.setItem(LS_SEASON_KEY, JSON.stringify([...selectedSeasons]));
     updateSeasonLabel();
     closeSeasonFilter();
@@ -899,30 +922,48 @@
       <p class="sample" style="opacity:.4">Carregando…</p>`;
   }
 
-  // Converte texto com rótulos "Label: conteúdo\nLabel: conteúdo" em HTML formatado.
-  // Rastreia estado: parágrafos principais recebem divisória, seção de ligas é compacta.
-  function analysisToHtml(text) {
+  // Retorna Set com nomes das ligas selecionadas, ou null quando todas estão ativas.
+  function selectedLeagueNames() {
+    const avail = availableIds();
+    const sel   = avail.filter(id => selectedLeagues.has(id));
+    if (!sel.length || sel.length === avail.length) return null;
+    return new Set(LEAGUES.filter(l => sel.includes(l.id)).map(l => l.name));
+  }
+
+  // Converte texto "Label: conteúdo\n..." em HTML.
+  // allowedLeagues (Set|null): filtra quais ligas da seção "Efetividade por liga" aparecem.
+  function analysisToHtml(text, allowedLeagues) {
     const lines = (text || '').split('\n').filter(l => l.trim());
     if (!lines.length) return `<p>${esc(text)}</p>`;
-    let inLeague  = false;
-    let mainCount = 0;
-    return lines.map(l => {
+    let inLeague    = false;
+    let mainCount   = 0;
+    let leagueTitle = 'Efetividade por liga';
+    const mainParts   = [];
+    const leagueParts = [];
+
+    for (const l of lines) {
       const mContent = l.match(/^([^:]{2,60}):\s*(.+)/s);
       const mHeader  = l.match(/^([^:]{2,60}):\s*$/);
-      if (mHeader) {
-        inLeague = true;
-        return `<p class="analysis-header">${esc(mHeader[1])}</p>`;
+      if (mHeader)  { inLeague = true; leagueTitle = mHeader[1]; continue; }
+      if (inLeague && mContent) {
+        const name = mContent[1].trim();
+        if (!allowedLeagues || allowedLeagues.has(name))
+          leagueParts.push(`<p class="analysis-league"><strong>${esc(mContent[1])}:</strong> ${esc(mContent[2])}</p>`);
+        continue;
       }
       if (mContent) {
-        if (inLeague) {
-          return `<p class="analysis-league"><strong>${esc(mContent[1])}:</strong> ${esc(mContent[2])}</p>`;
-        }
         mainCount++;
         const cls = mainCount > 1 ? 'analysis-main analysis-sep' : 'analysis-main';
-        return `<p class="${cls}"><strong>${esc(mContent[1])}:</strong> ${esc(mContent[2])}</p>`;
+        mainParts.push(`<p class="${cls}"><strong>${esc(mContent[1])}:</strong> ${esc(mContent[2])}</p>`);
+        continue;
       }
-      return `<p>${esc(l)}</p>`;
-    }).join('');
+      mainParts.push(`<p>${esc(l)}</p>`);
+    }
+
+    const leagueHtml = leagueParts.length
+      ? `<p class="analysis-header">${esc(leagueTitle)}</p>${leagueParts.join('')}`
+      : '';
+    return mainParts.join('') + leagueHtml;
   }
 
   function renderOverall(s) {
@@ -945,7 +986,7 @@
     let analysisContent;
     if (s.analysis) {
       analysisContent =
-        `<div class="analysis" id="overviewAnalysisText">${analysisToHtml(s.analysis)}</div>`;
+        `<div class="analysis" id="overviewAnalysisText">${analysisToHtml(s.analysis, selectedLeagueNames())}</div>`;
     } else if (isLocal) {
       analysisContent =
         `<div class="analysis" id="overviewAnalysisText" style="opacity:.5">` +
@@ -1104,7 +1145,7 @@
     el.style.opacity = '1';
 
     if (text) {
-      el.innerHTML = analysisToHtml(text);
+      el.innerHTML = analysisToHtml(text, selectedLeagueNames());
       return;
     }
 

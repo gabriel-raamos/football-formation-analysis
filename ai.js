@@ -76,24 +76,21 @@ function buildPrompt(stats) {
     ? leagueNames.map(n => `${n}: [Uma frase sobre como o confronto se comporta nessa liga.]`).join('\n')
     : '';
 
-  return `Você é um analista tático de futebol. Seja direto e objetivo.
+  return `Analista tático de futebol. Respostas curtas e diretas, sem introdução nem repetição de números.
 
-Confronto: ${formation_a} vs ${formation_b}
-${context} ${period} — ${total} partida${total !== 1 ? 's' : ''} finalizada${total !== 1 ? 's' : ''}
-${formation_a}: ${wins_a} vitória${wins_a !== 1 ? 's' : ''} (${pct_a}%) · Empates: ${draws} (${pct_draw}%) · ${formation_b}: ${wins_b} vitória${wins_b !== 1 ? 's' : ''} (${pct_b}%)
-Média de gols por partida: ${avg_goals}
+Confronto: ${formation_a} vs ${formation_b} | ${context} ${period}
+${formation_a}: ${wins_a}V (${pct_a}%) · ${draws}E (${pct_draw}%) · ${formation_b}: ${wins_b}V (${pct_b}%) · ${total} partidas · média ${avg_goals} gols
 ${leagueSection}
+Conclusão: ${verdict}
 
-Conclusão já definida: ${verdict}
+Escreva EXATAMENTE estes blocos, um por linha, em português:
 
-Escreva os seguintes blocos em português, cada um em sua própria linha, iniciados EXATAMENTE pelos rótulos abaixo:
-
-Formação dominante: [Uma frase sobre por que o ${dominant} tende a levar vantagem neste confronto — explique taticamente, sem repetir os números.]
-Análise geral: [Uma frase com uma leitura tática do confronto ${formation_a} vs ${formation_b} — dinâmica de jogo, áreas de disputa, características que definem o duelo no contexto de ${context}.]
-Formação com dificuldade: [Uma frase sobre por que o ${struggling} tende a ter dificuldade neste confronto — explique taticamente, sem repetir os números.]
+Formação dominante: [Uma frase direta — razão tática pela qual o ${dominant} leva vantagem. Sem números.]
+Análise geral: [Uma frase — dinâmica tática central do duelo ${formation_a} vs ${formation_b}.]
+Formação com dificuldade: [Uma frase direta — razão tática pela qual o ${struggling} sofre. Sem números.]
 ${leagueLines ? `Efetividade por liga:\n${leagueLines}` : ''}
 
-Comece diretamente pelo rótulo "Formação dominante:". Não repita números, não invente placares nem detalhes de partidas específicas. Sem introdução, sem marcadores adicionais. Para cada liga listada acima, escreva exatamente uma frase na linha correspondente ao nome da liga.`;
+Regras: sem introdução, sem repetir números, sem inventar partidas. Para cada liga acima: uma frase na mesma linha do nome da liga.`;
 }
 
 // ─── Geração ──────────────────────────────────────────────────────────────────
@@ -187,33 +184,32 @@ function buildOverviewPrompt({ formation, overall, teams, matchups, worstTeams, 
     ? leagueNames.map(n => `${n}: [Uma frase sobre como o ${formation} se comporta nessa liga.]`).join('\n')
     : '';
 
-  return `Você é um analista tático de futebol. Seja direto e objetivo.
+  return `Analista tático de futebol. Respostas curtas e diretas, sem introdução nem repetição de números.
 
-Formação analisada: ${formation}
-Contexto: ${context} (${period})
-Desempenho geral: ${total} partidas — ${wins}V ${draws}E ${losses}D — ${pct_win}% de vitórias — média ${avg_goals} gols/jogo
+Formação: ${formation} | ${context} (${period})
+Geral: ${total} partidas — ${wins}V ${draws}E ${losses}D — ${pct_win}% vitórias — média ${avg_goals} gols/jogo
 ${leagueSection}
 
-Confrontos com melhores índices de vitória (top 5, mín. 3 jogos):
+Confrontos com maior aproveitamento (top 5, mín. 3 jogos):
 ${topMatchups}
 
-Time com melhor aproveitamento na ${formation}:
+Melhor time na ${formation}:
 ${topTeamLine}
 
-Outros times relevantes:
+Outros:
 ${otherTopTeams}
 
-Times com menor aproveitamento na ${formation} (mín. 5 jogos):
+Menor aproveitamento (mín. 5 jogos):
 ${worstTeamsList}
 
-Escreva os seguintes blocos em português, cada um em sua própria linha, iniciados EXATAMENTE pelos rótulos abaixo:
+Escreva EXATAMENTE estes blocos, um por linha, em português:
 
-Time dominante: [Uma ou duas frases sobre o time com melhor aproveitamento — cite o clube pelo nome, mencione suas vitórias, derrotas e porcentagem exata, e diga contra quais adversários ele se destacou mais.]
-Análise geral: [Uma ou duas frases sobre os confrontos em que ${formation} tem vantagem estatística mais clara (cite as formações adversárias) e uma leitura tática breve sobre por que esse padrão ocorre.]
-Times com dificuldade: [Uma ou duas frases sobre os times que tiveram menor aproveitamento, citando nomes e números, com uma possível explicação tática para o insucesso.]
+Time dominante: [Uma frase — cite o clube, aproveitamento e por que se destaca com ${formation}.]
+Análise geral: [Uma frase — contra quais formações ${formation} tem mais vantagem e por quê taticamente.]
+Times com dificuldade: [Uma frase — times com menor aproveitamento e razão tática.]
 ${leagueLines ? `Efetividade por liga:\n${leagueLines}` : ''}
 
-Comece diretamente pelo rótulo "Time dominante:". Sem introdução, sem listas, sem marcadores adicionais. Contextualize a análise para ${context}. Para cada liga listada acima, escreva exatamente uma frase na linha correspondente ao nome da liga.`;
+Regras: sem introdução, sem repetir números além do necessário, sem inventar partidas. Para cada liga acima: uma frase na mesma linha do nome da liga.`;
 }
 
 async function streamOverviewAnalysis(data, sseFn) {
