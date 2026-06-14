@@ -184,23 +184,37 @@ async function getCachedAnalysis(formA, formB) {
 
 // ─── Handler ──────────────────────────────────────────────────────────────────
 
+const isValidFormation = (f) => /^\d-\d(-\d){1,2}$/.test(f);
+
 module.exports = async (req, res) => {
   const { formation_a, formation_b } = req.query;
-
-  if (!formation_a || !formation_b) {
-    return res.status(400).json({ error: 'formation_a e formation_b são obrigatórios.' });
-  }
 
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Cache-Control', 'no-store');
 
+  if (!formation_a || !isValidFormation(formation_a)) {
+    return res.status(400).json({ error: 'formation_a é obrigatória e deve ter o formato 4-3-3.' });
+  }
+  if (formation_b && !isValidFormation(formation_b)) {
+    return res.status(400).json({ error: 'formation_b inválida — use o formato 4-3-3.' });
+  }
+
   try {
+    // Sem formation_b → modo "geral": a formação contra todas as outras + times que dominam.
+    if (!formation_b) {
+      const [overall, teams] = await Promise.all([
+        getOverall(formation_a),
+        getTopTeams(formation_a),
+      ]);
+      return res.json({ mode: 'overall', ...overall, teams });
+    }
+
     const [stats, analysis] = await Promise.all([
       getStats(formation_a, formation_b),
       getCachedAnalysis(formation_a, formation_b),
     ]);
 
-    res.json({ ...stats, analysis });
+    res.json({ mode: 'matchup', ...stats, analysis });
   } catch (err) {
     console.error('[api/analysis]', err.message);
     res.status(500).json({ error: err.message });
