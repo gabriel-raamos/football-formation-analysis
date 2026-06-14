@@ -18,6 +18,13 @@ const parseLeagues = (v) => {
   return ids.length ? ids : null;
 };
 
+// Filtro de temporadas: "2024,2023" → [2024, 2023]; vazio/ausente → null (todas).
+const parseSeasons = (v) => {
+  if (!v) return null;
+  const years = String(v).split(',').map((s) => parseInt(s, 10)).filter(n => !isNaN(n));
+  return years.length ? years : null;
+};
+
 app.use((_req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   next();
@@ -40,19 +47,22 @@ app.get('/api/analysis', async (req, res) => {
   }
 
   const leagues = parseLeagues(req.query.leagues);
+  const seasons = parseSeasons(req.query.seasons);
 
   try {
     // Sem formation_b → modo "geral": a formação contra todas as outras + times que dominam.
     if (!formation_b) {
-      const [overall, teams] = await Promise.all([
-        db.getFormationOverall(formation_a, leagues),
-        db.getTopTeamsForFormation(formation_a, { leagueIds: leagues }),
+      const [overall, teams, matchups, analysis] = await Promise.all([
+        db.getFormationOverall(formation_a, leagues, seasons),
+        db.getTopTeamsForFormation(formation_a, { leagueIds: leagues, seasons }),
+        db.getFormationMatchups(formation_a, leagues, seasons),
+        db.getCachedAnalysis(formation_a, 'ALL'),
       ]);
-      return res.json({ mode: 'overall', ...overall, teams });
+      return res.json({ mode: 'overall', ...overall, teams, matchups, analysis });
     }
 
     const [stats, analysis] = await Promise.all([
-      db.getFormationStats(formation_a, formation_b, leagues),
+      db.getFormationStats(formation_a, formation_b, leagues, seasons),
       db.getCachedAnalysis(formation_a, formation_b),
     ]);
     res.json({ mode: 'matchup', ...stats, analysis });
@@ -84,7 +94,8 @@ app.get('/api/generate', async (req, res) => {
   let fullText = '';
 
   try {
-    const stats = await db.getFormationStats(formation_a, formation_b);
+    const seasons = parseSeasons(req.query.seasons);
+    const stats = await db.getFormationStats(formation_a, formation_b, null, seasons);
 
     if (!stats.total) {
       write('error', { message: 'Nenhuma partida encontrada para essas formações.' });
@@ -105,6 +116,71 @@ app.get('/api/generate', async (req, res) => {
 
   write('done', {});
   res.end();
+});
+
+// ─── GET /api/generate-overview ──────────────────────────────────────────────
+// SSE — gera análise da formação no modo "geral" via Ollama e salva no banco.
+
+app.get('/api/generate-overview', async (req, res) => {
+  const { formation_a } = req.query;
+
+  if (!formation_a || !isValidFormation(formation_a)) {
+    return res.status(400).json({ error: 'formation_a é obrigatória (formato 4-3-3).' });
+  }
+
+  res.setHeader('Content-Type',      'text/event-stream');
+  res.setHeader('Cache-Control',     'no-cache');
+  res.setHeader('Connection',        'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+
+  const write = (event, data) =>
+    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+
+  let fullText = '';
+
+  try {
+    const seasons = parseSeasons(req.query.seasons);
+    const [overall, teams, matchups, worstTeams] = await Promise.all([
+      db.getFormationOverall(formation_a, null, seasons),
+      db.getTopTeamsForFormation(formation_a, { limit: 5, seasons }),
+      db.getFormationMatchups(formation_a, null, seasons),
+      db.getWorstTeamsForFormation(formation_a, { limit: 5, seasons }),
+    ]);
+
+    if (!overall.total) {
+      write('error', { message: 'Nenhuma partida encontrada para essa formação.' });
+    } else {
+      await ai.streamOverviewAnalysis(
+        { formation: formation_a, overall, teams, matchups, worstTeams },
+        (event, payload) => {
+          write(event, payload);
+          if (event === 'text') fullText += payload.chunk ?? '';
+        },
+      );
+
+      if (fullText.trim()) {
+        await db.saveAnalysis(formation_a, 'ALL', fullText.trim());
+        write('saved', {});
+      }
+    }
+  } catch (err) {
+    write('error', { message: err.message ?? 'Erro interno.' });
+  }
+
+  write('done', {});
+  res.end();
+});
+
+// ─── GET /api/seasons ─────────────────────────────────────────────────────────
+
+app.get('/api/seasons', async (_req, res) => {
+  try {
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.json({ seasons: await db.getSeasons() });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // ─── GET /api/leagues ──────────────────────────────────────────────────────────

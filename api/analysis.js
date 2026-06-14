@@ -19,7 +19,7 @@ function getPool() {
 
 // ─── Stats query ──────────────────────────────────────────────────────────────
 
-async function getStats(formA, formB, leagueIds = null) {
+async function getStats(formA, formB, leagueIds = null, seasons = null) {
   const { rows } = await getPool().query(
     `WITH matchups AS (
        SELECT
@@ -36,6 +36,7 @@ async function getStats(formA, formB, leagueIds = null) {
            (lh.formation = $2 AND la.formation = $1)
          )
          AND ($3::int[] IS NULL OR f.league_id = ANY($3::int[]))
+         AND ($4::int[] IS NULL OR f.season    = ANY($4::int[]))
      )
      SELECT
        COUNT(*)::int                                             AS total,
@@ -55,7 +56,7 @@ async function getStats(formA, formB, leagueIds = null) {
        MIN(season)::int                                         AS min_season,
        MAX(season)::int                                         AS max_season
      FROM matchups`,
-    [formA, formB, leagueIds && leagueIds.length ? leagueIds : null],
+    [formA, formB, leagueIds && leagueIds.length ? leagueIds : null, seasons && seasons.length ? seasons : null],
   );
 
   const r = rows[0];
@@ -80,7 +81,7 @@ async function getStats(formA, formB, leagueIds = null) {
 
 // ─── Modo "geral": formação contra todas as outras ───────────────────────────
 
-async function getOverall(formation, leagueIds = null) {
+async function getOverall(formation, leagueIds = null, seasons = null) {
   const { rows } = await getPool().query(
     `WITH matchups AS (
        SELECT
@@ -93,6 +94,7 @@ async function getOverall(formation, leagueIds = null) {
        WHERE f.status = 'FT'
          AND (lh.formation = $1 OR la.formation = $1)
          AND ($2::int[] IS NULL OR f.league_id = ANY($2::int[]))
+         AND ($3::int[] IS NULL OR f.season    = ANY($3::int[]))
      )
      SELECT
        COUNT(*)::int                                            AS total,
@@ -111,7 +113,7 @@ async function getOverall(formation, leagueIds = null) {
        MIN(season)::int                                        AS min_season,
        MAX(season)::int                                        AS max_season
      FROM matchups`,
-    [formation, leagueIds && leagueIds.length ? leagueIds : null],
+    [formation, leagueIds && leagueIds.length ? leagueIds : null, seasons && seasons.length ? seasons : null],
   );
 
   const r = rows[0];
@@ -133,7 +135,7 @@ async function getOverall(formation, leagueIds = null) {
   };
 }
 
-async function getTopTeams(formation, limit = 10, leagueIds = null) {
+async function getTopTeams(formation, limit = 10, leagueIds = null, seasons = null) {
   const { rows } = await getPool().query(
     `WITH team_games AS (
        SELECT
@@ -146,6 +148,7 @@ async function getTopTeams(formation, limit = 10, leagueIds = null) {
          AND f.status = 'FT'
          AND fl.team_id IN (f.home_team_id, f.away_team_id)
          AND ($3::int[] IS NULL OR f.league_id = ANY($3::int[]))
+         AND ($4::int[] IS NULL OR f.season    = ANY($4::int[]))
      )
      SELECT
        t.id AS team_id, t.name AS name, t.logo_url AS logo_url,
@@ -158,7 +161,7 @@ async function getTopTeams(formation, limit = 10, leagueIds = null) {
      GROUP BY t.id, t.name, t.logo_url
      ORDER BY games DESC, wins DESC
      LIMIT $2`,
-    [formation, limit, leagueIds && leagueIds.length ? leagueIds : null],
+    [formation, limit, leagueIds && leagueIds.length ? leagueIds : null, seasons && seasons.length ? seasons : null],
   );
 
   return rows.map((r) => ({
@@ -170,6 +173,61 @@ async function getTopTeams(formation, limit = 10, leagueIds = null) {
     draws:    r.draws,
     losses:   r.losses,
     pct_win:  r.games ? parseFloat(((r.wins / r.games) * 100).toFixed(1)) : 0,
+  }));
+}
+
+// ─── Matchups por formação adversária (modo geral) ───────────────────────────
+
+async function getMatchups(formation, leagueIds = null, seasons = null) {
+  const { rows } = await getPool().query(
+    `WITH matchups AS (
+       SELECT
+         CASE WHEN lh.formation = $1 THEN la.formation ELSE lh.formation END AS opp,
+         CASE WHEN lh.formation = $1 THEN 'home' ELSE 'away' END             AS side,
+         f.home_winner, f.away_winner, f.goals_home
+       FROM fixtures f
+       JOIN fixture_lineups lh ON lh.fixture_id = f.id AND lh.team_id = f.home_team_id
+       JOIN fixture_lineups la ON la.fixture_id = f.id AND la.team_id = f.away_team_id
+       WHERE f.status = 'FT'
+         AND (lh.formation = $1 OR la.formation = $1)
+         AND lh.formation <> la.formation
+         AND ($2::int[] IS NULL OR f.league_id = ANY($2::int[]))
+         AND ($3::int[] IS NULL OR f.season    = ANY($3::int[]))
+     )
+     SELECT
+       opp                                                               AS opponent_formation,
+       COUNT(*)::int                                                     AS total,
+       SUM(CASE
+         WHEN side = 'home' AND home_winner = TRUE THEN 1
+         WHEN side = 'away' AND away_winner = TRUE THEN 1
+         ELSE 0 END)::int                                                AS wins,
+       SUM(CASE
+         WHEN home_winner IS NULL AND goals_home IS NOT NULL THEN 1
+         ELSE 0 END)::int                                                AS draws,
+       SUM(CASE
+         WHEN side = 'home' AND away_winner = TRUE THEN 1
+         WHEN side = 'away' AND home_winner = TRUE THEN 1
+         ELSE 0 END)::int                                                AS losses
+     FROM matchups
+     GROUP BY opp
+     HAVING COUNT(*) >= 3
+     ORDER BY
+       SUM(CASE
+         WHEN side = 'home' AND home_winner = TRUE THEN 1
+         WHEN side = 'away' AND away_winner = TRUE THEN 1
+         ELSE 0 END)::float / NULLIF(COUNT(*), 0) DESC,
+       COUNT(*) DESC
+     LIMIT 10`,
+    [formation, leagueIds && leagueIds.length ? leagueIds : null, seasons && seasons.length ? seasons : null],
+  );
+
+  return rows.map((r) => ({
+    opponent_formation: r.opponent_formation,
+    total:   r.total,
+    wins:    r.wins,
+    draws:   r.draws,
+    losses:  r.losses,
+    pct_win: r.total ? parseFloat(((r.wins / r.total) * 100).toFixed(1)) : 0,
   }));
 }
 
@@ -194,6 +252,12 @@ const parseLeagues = (v) => {
   return ids.length ? ids : null;
 };
 
+const parseSeasons = (v) => {
+  if (!v) return null;
+  const years = String(v).split(',').map((s) => parseInt(s, 10)).filter(n => !isNaN(n));
+  return years.length ? years : null;
+};
+
 module.exports = async (req, res) => {
   const { formation_a, formation_b } = req.query;
 
@@ -208,19 +272,22 @@ module.exports = async (req, res) => {
   }
 
   const leagues = parseLeagues(req.query.leagues);
+  const seasons = parseSeasons(req.query.seasons);
 
   try {
     // Sem formation_b → modo "geral": a formação contra todas as outras + times que dominam.
     if (!formation_b) {
-      const [overall, teams] = await Promise.all([
-        getOverall(formation_a, leagues),
-        getTopTeams(formation_a, 10, leagues),
+      const [overall, teams, matchups, analysis] = await Promise.all([
+        getOverall(formation_a, leagues, seasons),
+        getTopTeams(formation_a, 10, leagues, seasons),
+        getMatchups(formation_a, leagues, seasons),
+        getCachedAnalysis(formation_a, 'ALL'),
       ]);
-      return res.json({ mode: 'overall', ...overall, teams });
+      return res.json({ mode: 'overall', ...overall, teams, matchups, analysis });
     }
 
     const [stats, analysis] = await Promise.all([
-      getStats(formation_a, formation_b, leagues),
+      getStats(formation_a, formation_b, leagues, seasons),
       getCachedAnalysis(formation_a, formation_b),
     ]);
 

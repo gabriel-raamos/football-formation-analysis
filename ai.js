@@ -110,4 +110,101 @@ async function streamAnalysis(stats, sseFn) {
   }
 }
 
-module.exports = { streamAnalysis, completeAnalysis, buildPrompt, computeVerdict };
+// ─── Análise de formação no modo "geral" (vs todas as outras) ─────────────────
+
+function buildOverviewPrompt({ formation, overall, teams, matchups, worstTeams }) {
+  const { total, wins, draws, losses, pct_win, avg_goals, min_season, max_season } = overall;
+  const period = min_season === max_season ? String(min_season) : `${min_season}–${max_season}`;
+
+  const topMatchups = (matchups || []).slice(0, 5)
+    .map(m => `  ${formation} vs ${m.opponent_formation}: ${m.wins}V ${m.draws}E ${m.losses}D — ${m.pct_win}% (${m.total} jogos)`)
+    .join('\n') || '  Dados insuficientes.';
+
+  const topTeam = (teams || [])[0];
+  const topTeamLine = topTeam
+    ? `  ${topTeam.name}: ${topTeam.wins}V ${topTeam.draws}E ${topTeam.losses}D — ${topTeam.pct_win}% (${topTeam.games} jogos)`
+    : '  Dados insuficientes.';
+
+  const otherTopTeams = (teams || []).slice(1, 5)
+    .map(t => `  ${t.name}: ${t.wins}V ${t.draws}E ${t.losses}D — ${t.pct_win}% (${t.games} jogos)`)
+    .join('\n') || '  —';
+
+  const worstTeamsList = (worstTeams || []).slice(0, 5)
+    .map(t => `  ${t.name}: ${t.wins}V ${t.draws}E ${t.losses}D — ${t.pct_win}% (${t.games} jogos)`)
+    .join('\n') || '  Dados insuficientes.';
+
+  return `Você é um analista tático do Brasileirão Série A. Seja direto e objetivo.
+
+Formação analisada: ${formation}
+Desempenho geral (Série A ${period}): ${total} partidas — ${wins}V ${draws}E ${losses}D — ${pct_win}% de vitórias — média ${avg_goals} gols/jogo
+
+Confrontos com melhores índices de vitória (top 5, mín. 3 jogos):
+${topMatchups}
+
+Time com melhor aproveitamento na ${formation}:
+${topTeamLine}
+
+Outros times relevantes:
+${otherTopTeams}
+
+Times com menor aproveitamento na ${formation} (mín. 5 jogos):
+${worstTeamsList}
+
+Escreva EXATAMENTE 3 parágrafos em português, cada um em sua própria linha, iniciados pelos rótulos abaixo:
+
+Time dominante: [Uma ou duas frases sobre o time com melhor aproveitamento — cite o clube pelo nome, mencione suas vitórias, derrotas e porcentagem exata, e diga contra quais adversários ele se destacou mais.]
+Análise geral: [Uma ou duas frases sobre os confrontos em que ${formation} tem vantagem estatística mais clara (cite as formações adversárias) e uma leitura tática breve sobre por que esse padrão ocorre no futebol brasileiro.]
+Times com dificuldade: [Uma ou duas frases sobre os times que tiveram menor aproveitamento, citando nomes e números, com uma possível explicação tática para o insucesso.]
+
+Comece diretamente pelo rótulo "Time dominante:". Sem introdução, sem listas, sem marcadores adicionais.`;
+}
+
+async function streamOverviewAnalysis(data, sseFn) {
+  if (!data.overall?.total) {
+    sseFn('text', { chunk: 'Dados insuficientes para gerar análise.' });
+    return;
+  }
+
+  let stream;
+  try {
+    stream = await ollama.chat({
+      model:    OLLAMA_MODEL,
+      messages: [{ role: 'user', content: buildOverviewPrompt(data) }],
+      stream:   true,
+    });
+  } catch (err) {
+    const isOffline = err.cause?.code === 'ECONNREFUSED' || err.message?.includes('ECONNREFUSED');
+    sseFn('text', {
+      chunk: isOffline
+        ? `(Ollama não está rodando em ${OLLAMA_URL}. Inicie com: ollama serve)`
+        : `(Erro ao conectar ao Ollama: ${err.message})`,
+    });
+    return;
+  }
+
+  for await (const part of stream) {
+    const chunk = part.message?.content;
+    if (chunk) sseFn('text', { chunk });
+  }
+}
+
+/**
+ * Gera análise de formação no modo geral (overview) sem streaming.
+ * Usado pelo script de pré-geração em lote.
+ *
+ * @param {{ formation: string, overall: object, teams: object[], matchups: object[], worstTeams: object[] }} data
+ * @returns {Promise<string>}
+ */
+async function completeOverviewAnalysis(data) {
+  if (!data.overall?.total) return 'Dados insuficientes para gerar análise.';
+
+  const res = await ollama.chat({
+    model:    OLLAMA_MODEL,
+    messages: [{ role: 'user', content: buildOverviewPrompt(data) }],
+    stream:   false,
+  });
+
+  return (res.message?.content || '').trim() || 'Análise não disponível.';
+}
+
+module.exports = { streamAnalysis, completeAnalysis, completeOverviewAnalysis, buildPrompt, computeVerdict, streamOverviewAnalysis };
