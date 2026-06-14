@@ -1,11 +1,26 @@
 'use strict';
 require('dotenv').config();
 const { Ollama } = require('ollama');
+const { LEAGUES }  = require('./leagues');
 
 const OLLAMA_URL   = (process.env.OLLAMA_URL   || 'http://localhost:11434').replace(/"/g, '').trim();
 const OLLAMA_MODEL = (process.env.OLLAMA_MODEL || 'llama3.2').replace(/"/g, '').trim();
 
 const ollama = new Ollama({ host: OLLAMA_URL });
+
+// ─── Contexto de liga ─────────────────────────────────────────────────────────
+// Converte array de IDs em rótulo legível para o prompt.
+
+function leagueLabel(leagueIds) {
+  if (!leagueIds || !leagueIds.length) return 'futebol europeu e sul-americano';
+  const names = leagueIds
+    .map(id => LEAGUES.find(l => l.id === id)?.name)
+    .filter(Boolean);
+  if (!names.length) return 'futebol europeu e sul-americano';
+  if (names.length === 1) return names[0];
+  if (names.length <= 3) return names.join(', ');
+  return `${names.length} ligas selecionadas`;
+}
 
 // ─── Veredito (calculado em código) ───────────────────────────────────────────
 // O modelo local (llama3.2, 3B) não compara os números de forma confiável — chega
@@ -28,20 +43,21 @@ function computeVerdict({ formation_a, formation_b, total, wins_a, wins_b }) {
 
 function buildPrompt(stats) {
   const { formation_a, formation_b, total, wins_a, wins_b, draws,
-          pct_a, pct_b, pct_draw, avg_goals, min_season, max_season } = stats;
-  const period = min_season === max_season ? String(min_season) : `${min_season}–${max_season}`;
+          pct_a, pct_b, pct_draw, avg_goals, min_season, max_season, leagueIds } = stats;
+  const period  = min_season === max_season ? String(min_season) : `${min_season}–${max_season}`;
+  const context = leagueLabel(leagueIds);
   const verdict = computeVerdict(stats);
 
-  return `Você é um analista tático do Brasileirão Série A. Seja direto e objetivo.
+  return `Você é um analista tático de futebol. Seja direto e objetivo.
 
 Confronto: ${formation_a} vs ${formation_b}
-Série A ${period} — ${total} partida${total !== 1 ? 's' : ''} finalizada${total !== 1 ? 's' : ''}
+${context} ${period} — ${total} partida${total !== 1 ? 's' : ''} finalizada${total !== 1 ? 's' : ''}
 ${formation_a}: ${wins_a} vitória${wins_a !== 1 ? 's' : ''} (${pct_a}%) · Empates: ${draws} (${pct_draw}%) · ${formation_b}: ${wins_b} vitória${wins_b !== 1 ? 's' : ''} (${pct_b}%)
 Média de gols por partida: ${avg_goals}
 
 Conclusão já definida: ${verdict}
 
-Escreva UMA única frase em português com uma razão tática plausível, no contexto do futebol brasileiro, para esse resultado — coerente com a conclusão acima. Não repita os números, não invente placares nem detalhes de partidas específicas. Sem introdução e sem marcadores, apenas a frase.`;
+Escreva UMA única frase em português com uma razão tática plausível para esse resultado — coerente com a conclusão acima e com o contexto das ligas analisadas (${context}). Não repita os números, não invente placares nem detalhes de partidas específicas. Sem introdução e sem marcadores, apenas a frase.`;
 }
 
 // ─── Geração ──────────────────────────────────────────────────────────────────
@@ -112,9 +128,10 @@ async function streamAnalysis(stats, sseFn) {
 
 // ─── Análise de formação no modo "geral" (vs todas as outras) ─────────────────
 
-function buildOverviewPrompt({ formation, overall, teams, matchups, worstTeams }) {
+function buildOverviewPrompt({ formation, overall, teams, matchups, worstTeams, leagueIds }) {
   const { total, wins, draws, losses, pct_win, avg_goals, min_season, max_season } = overall;
-  const period = min_season === max_season ? String(min_season) : `${min_season}–${max_season}`;
+  const period  = min_season === max_season ? String(min_season) : `${min_season}–${max_season}`;
+  const context = leagueLabel(leagueIds);
 
   const topMatchups = (matchups || []).slice(0, 5)
     .map(m => `  ${formation} vs ${m.opponent_formation}: ${m.wins}V ${m.draws}E ${m.losses}D — ${m.pct_win}% (${m.total} jogos)`)
@@ -133,10 +150,11 @@ function buildOverviewPrompt({ formation, overall, teams, matchups, worstTeams }
     .map(t => `  ${t.name}: ${t.wins}V ${t.draws}E ${t.losses}D — ${t.pct_win}% (${t.games} jogos)`)
     .join('\n') || '  Dados insuficientes.';
 
-  return `Você é um analista tático do Brasileirão Série A. Seja direto e objetivo.
+  return `Você é um analista tático de futebol. Seja direto e objetivo.
 
 Formação analisada: ${formation}
-Desempenho geral (Série A ${period}): ${total} partidas — ${wins}V ${draws}E ${losses}D — ${pct_win}% de vitórias — média ${avg_goals} gols/jogo
+Contexto: ${context} (${period})
+Desempenho geral: ${total} partidas — ${wins}V ${draws}E ${losses}D — ${pct_win}% de vitórias — média ${avg_goals} gols/jogo
 
 Confrontos com melhores índices de vitória (top 5, mín. 3 jogos):
 ${topMatchups}
@@ -156,7 +174,7 @@ Time dominante: [Uma ou duas frases sobre o time com melhor aproveitamento — c
 Análise geral: [Uma ou duas frases sobre os confrontos em que ${formation} tem vantagem estatística mais clara (cite as formações adversárias) e uma leitura tática breve sobre por que esse padrão ocorre no futebol brasileiro.]
 Times com dificuldade: [Uma ou duas frases sobre os times que tiveram menor aproveitamento, citando nomes e números, com uma possível explicação tática para o insucesso.]
 
-Comece diretamente pelo rótulo "Time dominante:". Sem introdução, sem listas, sem marcadores adicionais.`;
+Comece diretamente pelo rótulo "Time dominante:". Sem introdução, sem listas, sem marcadores adicionais. Contextualize a análise para ${context}.`;
 }
 
 async function streamOverviewAnalysis(data, sseFn) {

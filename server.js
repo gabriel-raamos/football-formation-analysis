@@ -94,8 +94,10 @@ app.get('/api/generate', async (req, res) => {
   let fullText = '';
 
   try {
+    const leagues = parseLeagues(req.query.leagues);
     const seasons = parseSeasons(req.query.seasons);
-    const stats = await db.getFormationStats(formation_a, formation_b, null, seasons);
+    const stats   = await db.getFormationStats(formation_a, formation_b, leagues, seasons);
+    stats.leagueIds = leagues;
 
     if (!stats.total) {
       write('error', { message: 'Nenhuma partida encontrada para essas formações.' });
@@ -140,19 +142,20 @@ app.get('/api/generate-overview', async (req, res) => {
   let fullText = '';
 
   try {
+    const leagues = parseLeagues(req.query.leagues);
     const seasons = parseSeasons(req.query.seasons);
     const [overall, teams, matchups, worstTeams] = await Promise.all([
-      db.getFormationOverall(formation_a, null, seasons),
-      db.getTopTeamsForFormation(formation_a, { limit: 5, seasons }),
-      db.getFormationMatchups(formation_a, null, seasons),
-      db.getWorstTeamsForFormation(formation_a, { limit: 5, seasons }),
+      db.getFormationOverall(formation_a, leagues, seasons),
+      db.getTopTeamsForFormation(formation_a, { limit: 5, leagueIds: leagues, seasons }),
+      db.getFormationMatchups(formation_a, leagues, seasons),
+      db.getWorstTeamsForFormation(formation_a, { limit: 5, leagueIds: leagues, seasons }),
     ]);
 
     if (!overall.total) {
       write('error', { message: 'Nenhuma partida encontrada para essa formação.' });
     } else {
       await ai.streamOverviewAnalysis(
-        { formation: formation_a, overall, teams, matchups, worstTeams },
+        { formation: formation_a, overall, teams, matchups, worstTeams, leagueIds: leagues },
         (event, payload) => {
           write(event, payload);
           if (event === 'text') fullText += payload.chunk ?? '';

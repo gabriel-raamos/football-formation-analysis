@@ -830,7 +830,7 @@
     const el = $('overviewAnalysisText');
     if (el) { el.style.opacity = '1'; el.style.whiteSpace = 'pre-line'; el.textContent = ''; }
 
-    const url = `/api/generate-overview?formation_a=${encodeURIComponent(formation)}${seasonsParam()}`;
+    const url = `/api/generate-overview?formation_a=${encodeURIComponent(formation)}${leaguesParam()}${seasonsParam()}`;
     const es  = new EventSource(url);
     let   buf = '';
     let   formatted = false;
@@ -929,7 +929,7 @@
     const el = $('analysisText');
     if (el) { el.style.opacity = '1'; el.textContent = ''; }
 
-    const url = `/api/generate?formation_a=${encodeURIComponent(fmtA)}&formation_b=${encodeURIComponent(fmtB)}${seasonsParam()}`;
+    const url = `/api/generate?formation_a=${encodeURIComponent(fmtA)}&formation_b=${encodeURIComponent(fmtB)}${leaguesParam()}${seasonsParam()}`;
     const es  = new EventSource(url);
     let   buf = '';
 

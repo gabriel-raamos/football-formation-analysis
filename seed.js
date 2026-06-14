@@ -1,22 +1,25 @@
 /**
- * seed.js — Alimenta o banco com todas as partidas finalizadas do Brasileirão
+ * seed.js — Alimenta o banco com partidas finalizadas das principais ligas
  *
  * Uso:
- *   node seed.js                     # todas as temporadas, até 90 chamadas de lineup
- *   node seed.js --league 39         # outra liga (39 Premier, 140 La Liga, 135 Serie A, 78 Bundesliga, 61 Ligue 1) — default 71 (Brasileirão)
- *   node seed.js --season 2023       # apenas temporada específica
- *   node seed.js --max-calls 50      # limita chamadas de lineup (default: 90)
- *   node seed.js --fixtures-only     # apenas tabela de fixtures, sem lineups
+ *   node seed.js                       # Brasileirão, todas as temporadas
+ *   node seed.js --league 39           # outra liga específica (39 Premier, 140 La Liga, 135 Serie A, 78 Bundesliga, 61 Ligue 1)
+ *   node seed.js --all-leagues         # todas as ligas configuradas em leagues.js
+ *   node seed.js --season 2023         # apenas temporada específica
+ *   node seed.js --max-calls 50        # limita chamadas de lineup (default: 90)
+ *   node seed.js --fixtures-only       # apenas tabela de fixtures, sem lineups
  *
  * O script é idempotente: pode ser executado múltiplas vezes sem duplicar dados.
  * Ao atingir o limite de chamadas, pare e execute novamente no dia seguinte.
+ * Com --all-leagues, os fixtures de todas as ligas são inseridos primeiro e depois
+ * os lineups são populados até o limite diário de chamadas.
  */
 
 'use strict';
 require('dotenv').config();
 const axios  = require('axios');
 const { Pool } = require('pg');
-const { leagueName } = require('./leagues');
+const { LEAGUES, leagueName } = require('./leagues');
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -45,12 +48,16 @@ const api = axios.create({
 
 // ─── CLI args ─────────────────────────────────────────────────────────────────
 
-const args        = process.argv.slice(2);
-const seasonArg   = args.includes('--season')       ? parseInt(args[args.indexOf('--season') + 1])       : null;
-const maxCalls    = args.includes('--max-calls')     ? parseInt(args[args.indexOf('--max-calls') + 1])    : 90;
+const args         = process.argv.slice(2);
+const seasonArg    = args.includes('--season')       ? parseInt(args[args.indexOf('--season') + 1])    : null;
+const maxCalls     = args.includes('--max-calls')    ? parseInt(args[args.indexOf('--max-calls') + 1]) : 90;
 const fixturesOnly = args.includes('--fixtures-only');
+const allLeagues   = args.includes('--all-leagues');
 
-const targetSeasons = seasonArg ? [seasonArg] : ALL_SEASONS;
+const targetSeasons   = seasonArg ? [seasonArg] : ALL_SEASONS;
+const targetLeagueIds = allLeagues
+  ? LEAGUES.map(l => l.id)
+  : [LEAGUE_ID];
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
 
@@ -157,10 +164,10 @@ async function upsertFixture(f, leagueRow, venueId) {
 
 // ─── Phase 1: fetch & store fixtures for each season ─────────────────────────
 
-async function seedFixtures(season) {
+async function seedFixtures(season, leagueId = LEAGUE_ID) {
   // check if season already in DB
   const { rows } = await pool.query(
-    'SELECT COUNT(*)::int AS cnt FROM fixtures WHERE season = $1 AND league_id = $2', [season, LEAGUE_ID]
+    'SELECT COUNT(*)::int AS cnt FROM fixtures WHERE season = $1 AND league_id = $2', [season, leagueId]
   );
   const existing = rows[0].cnt;
 
@@ -171,7 +178,7 @@ async function seedFixtures(season) {
 
   log(`  [${season}] Buscando fixtures na API…`);
   const { data } = await api.get('/fixtures', {
-    params: { league: LEAGUE_ID, season, status: 'FT' },
+    params: { league: leagueId, season, status: 'FT' },
   });
 
   const fixtures = data.response ?? [];
@@ -261,8 +268,13 @@ async function seedLineups(maxApiCalls) {
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 (async () => {
+  const ligasLabel = allLeagues
+    ? `todas as ligas (${targetLeagueIds.length})`
+    : leagueName(LEAGUE_ID);
+
   log('\n═══════════════════════════════════════════════════════');
-  log(`  Seed — ${leagueName(LEAGUE_ID)} (liga ${LEAGUE_ID}, 2020+)`);
+  log(`  Seed — ${ligasLabel}`);
+  log(`  Temporadas: ${targetSeasons.join(', ')}`);
   log('═══════════════════════════════════════════════════════\n');
 
   try {
@@ -274,20 +286,23 @@ async function seedLineups(maxApiCalls) {
     process.exit(1);
   }
 
-  // ── Phase 1: fixtures ──
+  // ── Phase 1: fixtures (para cada liga) ────────────────
   log('── Fase 1: Fixtures ──────────────────────────────────');
   let totalFixtures = 0;
-  for (const season of targetSeasons) {
-    try {
-      totalFixtures += await seedFixtures(season);
-      await delay(400); // delay entre chamadas de fixtures
-    } catch (e) {
-      if (e.response?.status === 429) {
-        log(`\n  ⚠  Rate limit atingido ao buscar fixtures de ${season}.`);
-        log('  Execute novamente amanhã.\n');
-        break;
+  for (const leagueId of targetLeagueIds) {
+    if (targetLeagueIds.length > 1) log(`\n  Liga: ${leagueName(leagueId)} (${leagueId})`);
+    for (const season of targetSeasons) {
+      try {
+        totalFixtures += await seedFixtures(season, leagueId);
+        await delay(400);
+      } catch (e) {
+        if (e.response?.status === 429) {
+          log(`\n  ⚠  Rate limit atingido ao buscar fixtures de ${season}.`);
+          log('  Execute novamente amanhã.\n');
+          break;
+        }
+        log(`  ERRO em ${season}: ${e.message}`);
       }
-      log(`  ERRO em ${season}: ${e.message}`);
     }
   }
 
