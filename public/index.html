@@ -1140,12 +1140,18 @@
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 
+  function logoErr(img) {
+    const d = document.createElement('div');
+    d.className = 'team-initial';
+    d.textContent = img.dataset.init || '?';
+    img.replaceWith(d);
+  }
+
   function logoTag(logoUrl, name) {
-    const init = esc((name || '?')[0].toUpperCase());
-    const fallback = `<div class=&quot;team-initial&quot;>${init}</div>`;
-    if (!logoUrl) return `<div class="team-initial">${init}</div>`;
+    const init = (name || '?')[0].toUpperCase();
+    if (!logoUrl) return `<div class="team-initial">${esc(init)}</div>`;
     const url = esc(logoUrl.replace(/^http:\/\//, 'https://'));
-    return `<img class="team-logo" src="${url}" alt="${init}" onerror="this.outerHTML='${fallback}'">`;
+    return `<img class="team-logo" src="${url}" alt="${esc(init)}" data-init="${esc(init)}" onerror="logoErr(this)">`;
   }
 </script>
 </body>
