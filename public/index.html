@@ -198,7 +198,7 @@
     @media (min-width: 680px) {
       .result-grid {
         display: grid;
-        grid-template-columns: 340px 1fr;
+        grid-template-columns: 1fr 1fr;
         gap: 2rem;
         align-items: start;
       }
@@ -366,6 +366,16 @@
       font-size: .62rem; color: var(--muted); margin-bottom: .3rem;
       padding-bottom: .2rem; border-bottom: 1px solid var(--border);
     }
+    .matchup-league-stat {
+      font-size: .65rem;
+      color: var(--muted);
+      font-family: 'Fira Code', 'SF Mono', monospace;
+      font-variant-numeric: tabular-nums;
+      margin-bottom: .4rem;
+    }
+    .matchup-league-stat .stat-a    { color: var(--blue); }
+    .matchup-league-stat .stat-b    { color: var(--orange); }
+    .matchup-league-stat .stat-draw { color: var(--muted); }
     .matchup-col .team-row  { padding: .2rem 0; gap: .4rem; }
     .matchup-col .team-name { font-size: .78rem; }
     .matchup-col .team-stat { font-size: .63rem; letter-spacing: -.01em; }
@@ -996,8 +1006,8 @@
   }
 
   function renderOverall(s) {
-    const seg = (cls, flex, txt, min) =>
-      `<div class="bar-seg ${cls}" style="flex:${flex}">${flex >= min ? txt : ''}</div>`;
+    const seg = (cls, flex) =>
+      `<div class="bar-seg ${cls}" style="flex:${flex}"></div>`;
 
     const period = s.min_season === s.max_season
       ? String(s.min_season)
@@ -1038,9 +1048,9 @@
             <span class="fmt-label b">Derrotas</span>
           </div>
           <div class="bar">
-            ${seg('a',    s.pct_win,  s.pct_win  + '%', 15)}
-            ${seg('draw', s.pct_draw, s.pct_draw + '%', 10)}
-            ${seg('b',    s.pct_loss, s.pct_loss + '%', 15)}
+            ${seg('a',    s.pct_win)}
+            ${seg('draw', s.pct_draw)}
+            ${seg('b',    s.pct_loss)}
           </div>
           <div class="pcts">
             <span class="pct a">${s.pct_win}%</span>
@@ -1103,9 +1113,11 @@
     };
   }
 
-  function renderLeagueTeams(rows, fmtA, fmtB) {
+  function renderLeagueTeams(rows, fmtA, fmtB, leagueStatsArr) {
     const el = $('leagueTeams');
     if (!el || !rows || !rows.length) return;
+
+    const statsMap = new Map((leagueStatsArr || []).map(s => [s.league_id, s]));
 
     // Agrupa por league_id (não por league_name) para evitar fusão de ligas homônimas
     const leagueMap = new Map();
@@ -1123,9 +1135,19 @@
         <span class="team-stat"><strong>${t.pct_win}%</strong> · ${t.wins}V ${t.draws}E ${t.losses}D</span>
       </div>`;
 
-    el.innerHTML = [...leagueMap.entries()].map(([, { name, a, b }]) => `
+    el.innerHTML = [...leagueMap.entries()].map(([leagueId, { name, a, b }]) => {
+      const ls = statsMap.get(leagueId);
+      const statLine = ls ? `
+        <div class="matchup-league-stat">
+          ${ls.total} partidas ·
+          <span class="stat-a">${ls.pct_a}%V</span> ·
+          <span class="stat-draw">${ls.pct_draw}%E</span> ·
+          <span class="stat-b">${ls.pct_b}%V</span>
+        </div>` : '';
+      return `
       <div class="matchup-league">
         <div class="matchup-league-name">${esc(name)}</div>
+        ${statLine}
         <div class="matchup-cols">
           <div class="matchup-col">
             <div class="matchup-col-title a">${esc(fmtA)}</div>
@@ -1138,7 +1160,8 @@
             ${b.length ? b.map(renderTeamRow).join('') : '<p class="sample">—</p>'}
           </div>
         </div>
-      </div>`).join('');
+      </div>`;
+    }).join('');
   }
 
   function renderStats(s) {
@@ -1151,10 +1174,6 @@
     if (segA)    segA.style.flex    = String(s.pct_a);
     if (segDraw) segDraw.style.flex = String(s.pct_draw);
     if (segB)    segB.style.flex    = String(s.pct_b);
-
-    if (segA    && s.pct_a    >= 15) segA.textContent    = s.pct_a    + '%';
-    if (segDraw && s.pct_draw >= 10) segDraw.textContent = s.pct_draw + '%';
-    if (segB    && s.pct_b    >= 15) segB.textContent    = s.pct_b    + '%';
 
     const pcts = $('result').querySelectorAll('.pct');
     if (pcts[0]) pcts[0].textContent = s.pct_a    + '%';
@@ -1171,7 +1190,7 @@
         `${s.total} partida${s.total !== 1 ? 's' : ''} · média ${s.avg_goals} gols/jogo`;
     }
 
-    renderLeagueTeams(s.teamsPerLeague, s.formation_a, s.formation_b);
+    renderLeagueTeams(s.teamsPerLeague, s.formation_a, s.formation_b, s.leagueStats);
   }
 
   function renderAnalysis(text, fmtA, fmtB) {

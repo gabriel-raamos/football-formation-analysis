@@ -325,6 +325,61 @@ async function getTeamsPerLeagueForMatchup(formationA, formationB, leagueIds = n
   }));
 }
 
+// ─── Stats por liga no confronto H2H ─────────────────────────────────────────
+
+async function getMatchupStatsPerLeague(formA, formB, leagueIds = null, seasons = null) {
+  const { rows } = await getPool().query(
+    `WITH matchups AS (
+       SELECT
+         f.league_id,
+         f.goals_home, f.goals_away,
+         f.home_winner, f.away_winner,
+         CASE WHEN lh.formation = $1 THEN 'home' ELSE 'away' END AS side_a
+       FROM fixtures f
+       JOIN fixture_lineups lh ON lh.fixture_id = f.id AND lh.team_id = f.home_team_id
+       JOIN fixture_lineups la ON la.fixture_id = f.id AND la.team_id = f.away_team_id
+       WHERE f.status = 'FT'
+         AND (
+           (lh.formation = $1 AND la.formation = $2) OR
+           (lh.formation = $2 AND la.formation = $1)
+         )
+         AND ($3::int[] IS NULL OR f.league_id = ANY($3::int[]))
+         AND ($4::int[] IS NULL OR f.season    = ANY($4::int[]))
+     )
+     SELECT
+       league_id::int,
+       COUNT(*)::int AS total,
+       SUM(CASE WHEN side_a='home' AND home_winner=TRUE  THEN 1
+                WHEN side_a='away' AND away_winner=TRUE  THEN 1 ELSE 0 END)::int AS wins_a,
+       SUM(CASE WHEN side_a='home' AND away_winner=TRUE  THEN 1
+                WHEN side_a='away' AND home_winner=TRUE  THEN 1 ELSE 0 END)::int AS wins_b,
+       SUM(CASE WHEN home_winner IS NULL AND goals_home IS NOT NULL THEN 1 ELSE 0 END)::int AS draws
+     FROM matchups
+     GROUP BY league_id
+     HAVING COUNT(*) >= 2
+     ORDER BY COUNT(*) DESC`,
+    [formA, formB,
+     leagueIds?.length ? leagueIds : null,
+     seasons?.length   ? seasons   : null],
+  );
+
+  return rows.map(r => {
+    const total = r.total;
+    const pct = n => parseFloat(((n / total) * 100).toFixed(1));
+    return {
+      league_id:  r.league_id,
+      league_name: leagueName(r.league_id),
+      total,
+      wins_a: r.wins_a,
+      wins_b: r.wins_b,
+      draws:  r.draws,
+      pct_a:    pct(r.wins_a),
+      pct_b:    pct(r.wins_b),
+      pct_draw: pct(r.draws),
+    };
+  });
+}
+
 // ─── Cached AI analysis ───────────────────────────────────────────────────────
 
 async function getCachedAnalysis(formA, formB) {
@@ -380,13 +435,14 @@ module.exports = async (req, res) => {
       return res.json({ mode: 'overall', ...overall, teams, matchups, analysis });
     }
 
-    const [stats, analysis, teamsPerLeague] = await Promise.all([
+    const [stats, analysis, teamsPerLeague, leagueStats] = await Promise.all([
       getStats(formation_a, formation_b, leagues, seasons),
       getCachedAnalysis(formation_a, formation_b),
       getTeamsPerLeagueForMatchup(formation_a, formation_b, leagues, seasons),
+      getMatchupStatsPerLeague(formation_a, formation_b, leagues, seasons),
     ]);
 
-    res.json({ mode: 'matchup', ...stats, analysis, teamsPerLeague });
+    res.json({ mode: 'matchup', ...stats, analysis, teamsPerLeague, leagueStats });
   } catch (err) {
     console.error('[api/analysis]', err.message);
     res.status(500).json({ error: err.message });
