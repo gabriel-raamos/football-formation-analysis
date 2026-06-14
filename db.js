@@ -224,6 +224,82 @@ async function getFormationStats(formationA, formationB) {
 }
 
 /**
+ * Estatísticas de uma formação contra TODAS as outras (modo "geral").
+ * Considera TODAS as temporadas disponíveis no banco.
+ *
+ * @param {string} formation
+ * @returns {Promise<{
+ *   formation: string, total: number,
+ *   wins: number, draws: number, losses: number,
+ *   pct_win: number, pct_draw: number, pct_loss: number,
+ *   avg_goals: number, min_season: number, max_season: number
+ * }>}
+ */
+async function getFormationOverall(formation) {
+  const { rows } = await pool.query(
+    `WITH matchups AS (
+       SELECT
+         f.season,
+         f.goals_home,
+         f.goals_away,
+         f.home_winner,
+         f.away_winner,
+         CASE WHEN lh.formation = $1 THEN 'home' ELSE 'away' END AS side
+       FROM fixtures f
+       JOIN fixture_lineups lh ON lh.fixture_id = f.id AND lh.team_id = f.home_team_id
+       JOIN fixture_lineups la ON la.fixture_id = f.id AND la.team_id = f.away_team_id
+       WHERE f.status = 'FT'
+         AND (lh.formation = $1 OR la.formation = $1)
+     )
+     SELECT
+       COUNT(*)::int                                              AS total,
+       SUM(CASE
+         WHEN side = 'home' AND home_winner = TRUE THEN 1
+         WHEN side = 'away' AND away_winner = TRUE THEN 1
+         ELSE 0 END)::int                                        AS wins,
+       SUM(CASE
+         WHEN side = 'home' AND away_winner = TRUE THEN 1
+         WHEN side = 'away' AND home_winner = TRUE THEN 1
+         ELSE 0 END)::int                                        AS losses,
+       SUM(CASE
+         WHEN home_winner IS NULL
+          AND goals_home IS NOT NULL THEN 1
+         ELSE 0 END)::int                                        AS draws,
+       ROUND(AVG((goals_home + goals_away)::numeric), 1)         AS avg_goals,
+       MIN(season)::int                                          AS min_season,
+       MAX(season)::int                                          AS max_season
+     FROM matchups`,
+    [formation],
+  );
+
+  const r = rows[0];
+  if (!r || !r.total) {
+    return {
+      formation, total: 0,
+      wins: 0, draws: 0, losses: 0,
+      pct_win: 0, pct_draw: 0, pct_loss: 0,
+      avg_goals: 0, min_season: null, max_season: null,
+    };
+  }
+
+  const pct = (n) => parseFloat(((n / r.total) * 100).toFixed(1));
+
+  return {
+    formation,
+    total:      r.total,
+    wins:       r.wins,
+    draws:      r.draws,
+    losses:     r.losses,
+    pct_win:    pct(r.wins),
+    pct_draw:   pct(r.draws),
+    pct_loss:   pct(r.losses),
+    avg_goals:  parseFloat(r.avg_goals ?? 0),
+    min_season: r.min_season,
+    max_season: r.max_season,
+  };
+}
+
+/**
  * Retorna o texto de análise de IA em cache para um par de formações.
  * Sempre consulta na ordem canônica (alfabética) para que A vs B = B vs A.
  *
