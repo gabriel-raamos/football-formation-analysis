@@ -550,24 +550,24 @@ async function getTeamsPerLeagueForMatchup(formationA, formationB, leagueIds = n
        FROM team_games tg
        GROUP BY tg.league_id, tg.team_id, tg.formation
      ),
-     -- Coluna A: times com mais SUCESSO usando formação A contra B (wins DESC)
+     -- Coluna A: times com mais SUCESSO usando formação A contra B (pontos DESC: V=3, E=1, D=0)
      ranked_a AS (
        SELECT ts.*, t.name AS team_name, t.logo_url, l.name AS league_name,
               ROUND(100.0 * ts.wins / NULLIF(ts.games, 0))::int AS pct_win,
               ROW_NUMBER() OVER (
-                PARTITION BY ts.league_id ORDER BY ts.wins DESC, ts.games DESC
+                PARTITION BY ts.league_id ORDER BY (ts.wins * 3 + ts.draws) DESC, ts.games DESC
               ) AS rn
        FROM team_stats ts
        JOIN teams t ON t.id = ts.team_id
        JOIN leagues l ON l.id = ts.league_id
        WHERE ts.formation = $1
      ),
-     -- Coluna B: times com mais FRACASSO usando formação B contra A (losses DESC)
+     -- Coluna B: times com mais FRACASSO usando formação B contra A (pontos ASC: menos pontos = mais fracasso)
      ranked_b AS (
        SELECT ts.*, t.name AS team_name, t.logo_url, l.name AS league_name,
               ROUND(100.0 * ts.wins / NULLIF(ts.games, 0))::int AS pct_win,
               ROW_NUMBER() OVER (
-                PARTITION BY ts.league_id ORDER BY ts.losses DESC, ts.games DESC
+                PARTITION BY ts.league_id ORDER BY (ts.wins * 3 + ts.draws) ASC, ts.games DESC
               ) AS rn
        FROM team_stats ts
        JOIN teams t ON t.id = ts.team_id

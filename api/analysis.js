@@ -281,7 +281,7 @@ async function getTeamsPerLeagueForMatchup(formationA, formationB, leagueIds = n
      ranked_a AS (
        SELECT ts.*, t.name AS team_name, t.logo_url, l.name AS league_name,
               ROUND(100.0 * ts.wins / NULLIF(ts.games, 0))::int AS pct_win,
-              ROW_NUMBER() OVER (PARTITION BY ts.league_id ORDER BY ts.wins DESC, ts.games DESC) AS rn
+              ROW_NUMBER() OVER (PARTITION BY ts.league_id ORDER BY (ts.wins * 3 + ts.draws) DESC, ts.games DESC) AS rn
        FROM team_stats ts
        JOIN teams t ON t.id = ts.team_id
        JOIN leagues l ON l.id = ts.league_id
@@ -290,7 +290,7 @@ async function getTeamsPerLeagueForMatchup(formationA, formationB, leagueIds = n
      ranked_b AS (
        SELECT ts.*, t.name AS team_name, t.logo_url, l.name AS league_name,
               ROUND(100.0 * ts.wins / NULLIF(ts.games, 0))::int AS pct_win,
-              ROW_NUMBER() OVER (PARTITION BY ts.league_id ORDER BY ts.losses DESC, ts.games DESC) AS rn
+              ROW_NUMBER() OVER (PARTITION BY ts.league_id ORDER BY (ts.wins * 3 + ts.draws) ASC, ts.games DESC) AS rn
        FROM team_stats ts
        JOIN teams t ON t.id = ts.team_id
        JOIN leagues l ON l.id = ts.league_id
