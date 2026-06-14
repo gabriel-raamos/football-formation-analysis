@@ -222,6 +222,15 @@
     .analysis-top p { margin: .45rem 0; }
     .analysis-top p:first-child { margin-top: 0; }
     .analysis-top p:last-child  { margin-bottom: 0; }
+    .analysis-header {
+      margin-top: .9rem !important;
+      margin-bottom: .1rem !important;
+      font-size: .72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .07em;
+      color: var(--muted);
+    }
 
     /* sample size */
     .sample {
@@ -874,14 +883,16 @@
   }
 
   // Converte texto com rótulos "Label: conteúdo\nLabel: conteúdo" em HTML formatado.
+  // Linhas terminadas em ":" sem conteúdo são renderizadas como cabeçalho de seção.
   function analysisToHtml(text) {
     const lines = (text || '').split('\n').filter(l => l.trim());
     if (!lines.length) return `<p>${esc(text)}</p>`;
     return lines.map(l => {
-      const m = l.match(/^([^:]{2,40}):\s*(.+)/s);
-      return m
-        ? `<p><strong>${esc(m[1])}:</strong> ${esc(m[2])}</p>`
-        : `<p>${esc(l)}</p>`;
+      const mContent = l.match(/^([^:]{2,60}):\s*(.+)/s);
+      if (mContent) return `<p><strong>${esc(mContent[1])}:</strong> ${esc(mContent[2])}</p>`;
+      const mHeader = l.match(/^([^:]{2,60}):\s*$/);
+      if (mHeader) return `<p class="analysis-header">${esc(mHeader[1])}</p>`;
+      return `<p>${esc(l)}</p>`;
     }).join('');
   }
 

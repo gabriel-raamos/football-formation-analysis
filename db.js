@@ -603,6 +603,147 @@ async function getTeamsPerLeagueForMatchup(formationA, formationB, leagueIds = n
 }
 
 /**
+ * Retorna estatísticas do confronto formationA vs formationB agrupadas por liga.
+ * Útil para alimentar análises de IA com contexto por campeonato.
+ */
+async function getMatchupStatsPerLeague(formationA, formationB, leagueIds = null, seasons = null) {
+  const { rows } = await pool.query(
+    `WITH matchups AS (
+       SELECT
+         f.league_id,
+         f.goals_home,
+         f.goals_away,
+         f.home_winner,
+         f.away_winner,
+         CASE WHEN lh.formation = $1 THEN 'home' ELSE 'away' END AS side_a
+       FROM fixtures f
+       JOIN fixture_lineups lh ON lh.fixture_id = f.id AND lh.team_id = f.home_team_id
+       JOIN fixture_lineups la ON la.fixture_id = f.id AND la.team_id = f.away_team_id
+       WHERE f.status = 'FT'
+         AND (
+           (lh.formation = $1 AND la.formation = $2) OR
+           (lh.formation = $2 AND la.formation = $1)
+         )
+         AND ($3::int[] IS NULL OR f.league_id = ANY($3::int[]))
+         AND ($4::int[] IS NULL OR f.season    = ANY($4::int[]))
+     )
+     SELECT
+       m.league_id,
+       l.name                                                        AS league_name,
+       COUNT(*)::int                                                 AS total,
+       SUM(CASE
+         WHEN side_a = 'home' AND home_winner = TRUE  THEN 1
+         WHEN side_a = 'away' AND away_winner = TRUE  THEN 1
+         ELSE 0 END)::int                                            AS wins_a,
+       SUM(CASE
+         WHEN side_a = 'home' AND away_winner = TRUE  THEN 1
+         WHEN side_a = 'away' AND home_winner = TRUE  THEN 1
+         ELSE 0 END)::int                                            AS wins_b,
+       SUM(CASE
+         WHEN home_winner IS NULL AND goals_home IS NOT NULL THEN 1
+         ELSE 0 END)::int                                            AS draws,
+       ROUND(AVG((goals_home + goals_away)::numeric), 1)             AS avg_goals
+     FROM matchups m
+     JOIN leagues l ON l.id = m.league_id
+     GROUP BY m.league_id, l.name
+     HAVING COUNT(*) >= 2
+     ORDER BY COUNT(*) DESC`,
+    [formationA, formationB,
+     leagueIds && leagueIds.length ? leagueIds : null,
+     seasons   && seasons.length   ? seasons   : null],
+  );
+
+  return rows.map(r => {
+    const total  = parseInt(r.total);
+    const wins_a = parseInt(r.wins_a);
+    const wins_b = parseInt(r.wins_b);
+    const draws  = parseInt(r.draws);
+    const pct    = (n) => parseFloat(((n / total) * 100).toFixed(1));
+    return {
+      league_id:   parseInt(r.league_id),
+      league_name: r.league_name,
+      total,
+      wins_a,
+      wins_b,
+      draws,
+      pct_a:    pct(wins_a),
+      pct_b:    pct(wins_b),
+      pct_draw: pct(draws),
+      avg_goals: parseFloat(r.avg_goals ?? 0),
+    };
+  });
+}
+
+/**
+ * Retorna estatísticas de uma formação (vs todas) agrupadas por liga.
+ * Útil para alimentar análises de IA com contexto por campeonato.
+ */
+async function getOverviewStatsPerLeague(formation, leagueIds = null, seasons = null) {
+  const { rows } = await pool.query(
+    `WITH matchups AS (
+       SELECT
+         f.league_id,
+         f.goals_home,
+         f.goals_away,
+         f.home_winner,
+         f.away_winner,
+         CASE WHEN lh.formation = $1 THEN 'home' ELSE 'away' END AS side
+       FROM fixtures f
+       JOIN fixture_lineups lh ON lh.fixture_id = f.id AND lh.team_id = f.home_team_id
+       JOIN fixture_lineups la ON la.fixture_id = f.id AND la.team_id = f.away_team_id
+       WHERE f.status = 'FT'
+         AND (lh.formation = $1 OR la.formation = $1)
+         AND ($2::int[] IS NULL OR f.league_id = ANY($2::int[]))
+         AND ($3::int[] IS NULL OR f.season    = ANY($3::int[]))
+     )
+     SELECT
+       m.league_id,
+       l.name                                                        AS league_name,
+       COUNT(*)::int                                                 AS total,
+       SUM(CASE
+         WHEN side = 'home' AND home_winner = TRUE  THEN 1
+         WHEN side = 'away' AND away_winner = TRUE  THEN 1
+         ELSE 0 END)::int                                            AS wins,
+       SUM(CASE
+         WHEN home_winner IS NULL AND goals_home IS NOT NULL THEN 1
+         ELSE 0 END)::int                                            AS draws,
+       SUM(CASE
+         WHEN side = 'home' AND away_winner = TRUE  THEN 1
+         WHEN side = 'away' AND home_winner = TRUE  THEN 1
+         ELSE 0 END)::int                                            AS losses,
+       ROUND(AVG((goals_home + goals_away)::numeric), 1)             AS avg_goals
+     FROM matchups m
+     JOIN leagues l ON l.id = m.league_id
+     GROUP BY m.league_id, l.name
+     HAVING COUNT(*) >= 2
+     ORDER BY COUNT(*) DESC`,
+    [formation,
+     leagueIds && leagueIds.length ? leagueIds : null,
+     seasons   && seasons.length   ? seasons   : null],
+  );
+
+  return rows.map(r => {
+    const total  = parseInt(r.total);
+    const wins   = parseInt(r.wins);
+    const draws  = parseInt(r.draws);
+    const losses = parseInt(r.losses);
+    const pct    = (n) => parseFloat(((n / total) * 100).toFixed(1));
+    return {
+      league_id:   parseInt(r.league_id),
+      league_name: r.league_name,
+      total,
+      wins,
+      draws,
+      losses,
+      pct_win:  pct(wins),
+      pct_draw: pct(draws),
+      pct_loss: pct(losses),
+      avg_goals: parseFloat(r.avg_goals ?? 0),
+    };
+  });
+}
+
+/**
  * Lista os campeonatos conhecidos (leagues.js) com a contagem de partidas que
  * já têm escalação no banco. Alimenta o filtro de ligas no frontend: ligas com
  * games = 0 ainda não foram populadas (a API-football precisa rodar via seed).
@@ -682,6 +823,8 @@ module.exports = {
   getTopTeamsForFormation,
   getWorstTeamsForFormation,
   getTeamsPerLeagueForMatchup,
+  getMatchupStatsPerLeague,
+  getOverviewStatsPerLeague,
   getLeagues,
   getCachedAnalysis,
   saveAnalysis,

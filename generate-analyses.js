@@ -56,14 +56,17 @@ async function runMatchups(formations) {
       if (cached) { same(`   [SKIP] ${label}`); skipped++; continue; }
     }
 
-    const stats = await db.getFormationStats(fmtA, fmtB);
+    const [stats, leagueStats] = await Promise.all([
+      db.getFormationStats(fmtA, fmtB),
+      db.getMatchupStatsPerLeague(fmtA, fmtB),
+    ]);
     if (!stats.total) { same(`   [ZERO] ${label}`); skipped++; continue; }
 
     if (DRY_RUN) { log(`   [DRY ] ${label} — ${stats.total} partidas`); continue; }
 
     try {
       same(`   [GEN ] ${label} (${stats.total} partidas)...`);
-      const text = await ai.completeAnalysis(stats);
+      const text = await ai.completeAnalysis({ ...stats, leagueStats });
       await db.saveAnalysis(fmtA, fmtB, text);
       log(`   [OK  ] ${label}`);
       generated++;
@@ -92,11 +95,12 @@ async function runOverviews(formations) {
       if (cached) { same(`   [SKIP] ${label}`); skipped++; continue; }
     }
 
-    const [overall, teams, matchups, worstTeams] = await Promise.all([
+    const [overall, teams, matchups, worstTeams, leagueStats] = await Promise.all([
       db.getFormationOverall(formation),
       db.getTopTeamsForFormation(formation, { limit: 5 }),
       db.getFormationMatchups(formation),
       db.getWorstTeamsForFormation(formation, { limit: 5 }),
+      db.getOverviewStatsPerLeague(formation),
     ]);
 
     if (!overall.total) { same(`   [ZERO] ${label}`); skipped++; continue; }
@@ -105,7 +109,7 @@ async function runOverviews(formations) {
 
     try {
       same(`   [GEN ] ${label} (${overall.total} partidas)...`);
-      const text = await ai.completeOverviewAnalysis({ formation, overall, teams, matchups, worstTeams });
+      const text = await ai.completeOverviewAnalysis({ formation, overall, teams, matchups, worstTeams, leagueStats });
       await db.saveAnalysis(formation, 'ALL', text);
       log(`   [OK  ] ${label}`);
       generated++;
