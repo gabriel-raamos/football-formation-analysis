@@ -8,7 +8,7 @@ const LEAGUES = [
   { id: 71,  name: 'Brasileirão Série A', country: 'Brasil' },
   { id: 39,  name: 'Premier League',      country: 'Inglaterra' },
   { id: 140, name: 'La Liga',             country: 'Espanha' },
-  { id: 135, name: 'Serie A',             country: 'Itália' },
+  { id: 135, name: 'Serie A (Itália)',     country: 'Itália' },
   { id: 78,  name: 'Bundesliga',          country: 'Alemanha' },
   { id: 61,  name: 'Ligue 1',             country: 'França' },
   { id: 128, name: 'Liga Profesional',    country: 'Argentina' },
