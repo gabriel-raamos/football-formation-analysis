@@ -48,6 +48,9 @@ function buildPrompt(stats) {
   const context = leagueLabel(leagueIds);
   const verdict = computeVerdict(stats);
 
+  const dominant   = wins_a >= wins_b ? formation_a : formation_b;
+  const struggling = wins_a >= wins_b ? formation_b : formation_a;
+
   return `Você é um analista tático de futebol. Seja direto e objetivo.
 
 Confronto: ${formation_a} vs ${formation_b}
@@ -57,7 +60,13 @@ Média de gols por partida: ${avg_goals}
 
 Conclusão já definida: ${verdict}
 
-Escreva UMA única frase em português com uma razão tática plausível para esse resultado — coerente com a conclusão acima e com o contexto das ligas analisadas (${context}). Não repita os números, não invente placares nem detalhes de partidas específicas. Sem introdução e sem marcadores, apenas a frase.`;
+Escreva EXATAMENTE 3 parágrafos em português, cada um em sua própria linha, iniciados pelos rótulos abaixo:
+
+Formação dominante: [Uma frase sobre por que o ${dominant} tende a levar vantagem neste confronto — explique taticamente, sem repetir os números.]
+Análise geral: [Uma frase com uma leitura tática do confronto ${formation_a} vs ${formation_b} — dinâmica de jogo, áreas de disputa, características que definem o duelo no contexto de ${context}.]
+Formação com dificuldade: [Uma frase sobre por que o ${struggling} tende a ter dificuldade neste confronto — explique taticamente, sem repetir os números.]
+
+Comece diretamente pelo rótulo "Formação dominante:". Não repita números, não invente placares nem detalhes de partidas específicas. Sem introdução, sem marcadores adicionais.`;
 }
 
 // ─── Geração ──────────────────────────────────────────────────────────────────
@@ -76,15 +85,13 @@ const INSUFFICIENT = (total) =>
 async function completeAnalysis(stats) {
   if (stats.total < 3) return INSUFFICIENT(stats.total);
 
-  const verdict = computeVerdict(stats);
   const res = await ollama.chat({
     model:    OLLAMA_MODEL,
     messages: [{ role: 'user', content: buildPrompt(stats) }],
     stream:   false,
   });
 
-  const reason = (res.message?.content || '').trim();
-  return reason ? `${verdict} ${reason}` : verdict;
+  return (res.message?.content || '').trim() || computeVerdict(stats);
 }
 
 /**
@@ -99,9 +106,6 @@ async function streamAnalysis(stats, sseFn) {
     sseFn('text', { chunk: INSUFFICIENT(stats.total) });
     return;
   }
-
-  // Veredito factual primeiro — não depende do modelo.
-  sseFn('text', { chunk: computeVerdict(stats) + ' ' });
 
   let stream;
   try {
