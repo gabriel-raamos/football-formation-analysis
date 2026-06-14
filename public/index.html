@@ -320,9 +320,10 @@
       border-bottom: 1px solid var(--border);
     }
     .matchup-col-title.b { color: var(--orange); }
-    .matchup-col .team-row  { padding: .2rem 0; }
+    .matchup-col .team-row  { padding: .2rem 0; gap: .4rem; }
     .matchup-col .team-name { font-size: .78rem; }
-    .matchup-col .team-stat { font-size: .65rem; }
+    .matchup-col .team-stat { font-size: .63rem; letter-spacing: -.01em; }
+    .matchup-col .team-rank { display: none; }
 
     /* ── Filtro de campeonatos ──────────────────── */
     .filter-btn {
@@ -986,7 +987,7 @@
         <span class="team-rank">${i + 1}</span>
         ${logoTag(t.logo_url, t.team_name)}
         <span class="team-name">${esc(t.team_name)}</span>
-        <span class="team-stat">${t.wins}V·${t.draws}E·${t.losses}D <strong>${t.pct_win}%</strong></span>
+        <span class="team-stat"><strong>${t.pct_win}%</strong> · ${t.wins}V ${t.draws}E ${t.losses}D</span>
       </div>`;
 
     el.innerHTML = [...leagueMap.entries()].map(([leagueName, { a, b }]) => `

@@ -493,31 +493,60 @@ async function getFormationMatchups(formation, leagueIds = null, seasons = null)
  */
 async function getTeamsPerLeagueForMatchup(formationA, formationB, leagueIds = null, seasons = null) {
   const { rows } = await pool.query(
-    `WITH team_games AS (
+    // Busca jogos onde o time usou formação A contra adversário com formação B (e vice-versa).
+    // W/D/L refletem o desempenho NESSE confronto específico, não de forma geral.
+    `WITH matchup_fixtures AS (
        SELECT
+         f.id,
          f.league_id,
-         fl.team_id,
-         fl.formation,
-         CASE WHEN fl.team_id = f.home_team_id THEN f.home_winner ELSE f.away_winner END AS won,
          f.home_winner,
-         f.goals_home
-       FROM fixture_lineups fl
-       JOIN fixtures f ON f.id = fl.fixture_id
-       WHERE fl.formation IN ($1, $2)
-         AND f.status = 'FT'
-         AND fl.team_id IN (f.home_team_id, f.away_team_id)
+         f.away_winner,
+         f.goals_home,
+         lh.team_id AS home_team,
+         la.team_id AS away_team,
+         lh.formation AS home_fmt,
+         la.formation AS away_fmt
+       FROM fixtures f
+       JOIN fixture_lineups lh ON lh.fixture_id = f.id AND lh.team_id = f.home_team_id
+       JOIN fixture_lineups la ON la.fixture_id = f.id AND la.team_id = f.away_team_id
+       WHERE f.status = 'FT'
+         AND (
+           (lh.formation = $1 AND la.formation = $2) OR
+           (lh.formation = $2 AND la.formation = $1)
+         )
          AND ($3::int[] IS NULL OR f.league_id = ANY($3::int[]))
          AND ($4::int[] IS NULL OR f.season    = ANY($4::int[]))
+     ),
+     team_games AS (
+       -- time usou formação A em casa, adversário usou B
+       SELECT league_id, home_team AS team_id, $1::text AS formation,
+              home_winner AS won, home_winner, goals_home
+       FROM matchup_fixtures WHERE home_fmt = $1
+       UNION ALL
+       -- time usou formação A fora, adversário usou B
+       SELECT league_id, away_team AS team_id, $1::text AS formation,
+              away_winner AS won, home_winner, goals_home
+       FROM matchup_fixtures WHERE away_fmt = $1
+       UNION ALL
+       -- time usou formação B em casa, adversário usou A
+       SELECT league_id, home_team AS team_id, $2::text AS formation,
+              home_winner AS won, home_winner, goals_home
+       FROM matchup_fixtures WHERE home_fmt = $2
+       UNION ALL
+       -- time usou formação B fora, adversário usou A
+       SELECT league_id, away_team AS team_id, $2::text AS formation,
+              away_winner AS won, home_winner, goals_home
+       FROM matchup_fixtures WHERE away_fmt = $2
      ),
      team_stats AS (
        SELECT
          tg.league_id,
          tg.team_id,
          tg.formation,
-         COUNT(*)::int                                                                AS games,
-         SUM(CASE WHEN tg.won = TRUE  THEN 1 ELSE 0 END)::int                       AS wins,
+         COUNT(*)::int                                                                         AS games,
+         SUM(CASE WHEN tg.won = TRUE  THEN 1 ELSE 0 END)::int                                AS wins,
          SUM(CASE WHEN tg.home_winner IS NULL AND tg.goals_home IS NOT NULL THEN 1 ELSE 0 END)::int AS draws,
-         SUM(CASE WHEN tg.won = FALSE THEN 1 ELSE 0 END)::int                       AS losses
+         SUM(CASE WHEN tg.won = FALSE THEN 1 ELSE 0 END)::int                                AS losses
        FROM team_games tg
        GROUP BY tg.league_id, tg.team_id, tg.formation
      ),
