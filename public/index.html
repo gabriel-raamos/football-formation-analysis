@@ -369,6 +369,23 @@
     .league-row input { width: 16px; height: 16px; accent-color: var(--blue); cursor: inherit; }
     .league-row .lg-name { flex: 1; font-size: .88rem; font-weight: 600; }
     .league-row .lg-meta { font-size: .7rem; color: var(--muted); font-family: 'Fira Code', 'SF Mono', monospace; }
+    .league-row-all { border-bottom: 1px solid var(--border); margin-bottom: .3rem; padding-bottom: .5rem; }
+    .league-row-all .lg-name { color: var(--muted); font-size: .82rem; font-weight: 500; font-style: italic; }
+    .btn-only {
+      display: none;
+      font-size: .68rem;
+      color: var(--blue);
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: .15rem .5rem;
+      cursor: pointer;
+      font-family: inherit;
+      flex-shrink: 0;
+      white-space: nowrap;
+    }
+    .league-row:hover .btn-only { display: block; }
+    .league-row:hover .lg-meta  { display: none; }
     .modal-actions { display: flex; gap: .5rem; margin-top: 1rem; }
     .modal-actions button {
       flex: 1;
@@ -571,17 +588,51 @@
   }
 
   function renderLeagueList() {
-    $('leagueList').innerHTML = LEAGUES.map(l => {
+    const avail = LEAGUES.filter(l => l.games > 0);
+    const allChecked = avail.length > 0 && avail.every(l => selectedLeagues.has(l.id));
+    const selectAllRow = `<label class="league-row league-row-all">
+      <input type="checkbox" id="chkAllLeagues" ${allChecked ? 'checked' : ''}>
+      <span class="lg-name">Selecionar todos</span>
+    </label>`;
+    const rows = LEAGUES.map(l => {
       const has = l.games > 0;
       return `<label class="league-row ${has ? '' : 'disabled'}">
         <input type="checkbox" value="${l.id}" ${selectedLeagues.has(l.id) ? 'checked' : ''} ${has ? '' : 'disabled'}>
         <span class="lg-name">${esc(l.name)}</span>
         <span class="lg-meta">${has ? l.games + ' jogos' : 'sem dados'}</span>
+        ${has ? `<button type="button" class="btn-only" onclick="onlyLeague(${l.id},event)">Somente esse</button>` : ''}
       </label>`;
     }).join('');
+    $('leagueList').innerHTML = selectAllRow + rows;
+
+    $('chkAllLeagues').addEventListener('change', function() {
+      $('leagueList').querySelectorAll('input[type=checkbox]:not(#chkAllLeagues):not([disabled])')
+        .forEach(c => { c.checked = this.checked; });
+    });
+    $('leagueList').addEventListener('change', e => {
+      if (e.target.id === 'chkAllLeagues') return;
+      updateSelectAllLeagues();
+    });
   }
 
-  function openFilter()  {
+  function updateSelectAllLeagues() {
+    const chk = $('chkAllLeagues');
+    if (!chk) return;
+    const items = [...$('leagueList').querySelectorAll('input[type=checkbox]:not(#chkAllLeagues):not([disabled])')];
+    const n = items.filter(c => c.checked).length;
+    chk.checked = n === items.length;
+    chk.indeterminate = n > 0 && n < items.length;
+  }
+
+  function onlyLeague(id, ev) {
+    ev.preventDefault(); ev.stopPropagation();
+    $('leagueList').querySelectorAll('input[type=checkbox]:not(#chkAllLeagues):not([disabled])')
+      .forEach(c => { c.checked = parseInt(c.value) === id; });
+    updateSelectAllLeagues();
+  }
+
+  function openFilter() {
+    selectedLeagues = new Set(availableIds());
     renderLeagueList();
     $('leagueModal').hidden = false;
     $('leagueList').querySelector('input:not([disabled])')?.focus();
@@ -635,14 +686,47 @@
   }
 
   function renderSeasonList() {
-    $('seasonList').innerHTML = SEASONS.map(y => `
+    const allChecked = SEASONS.length > 0 && SEASONS.every(y => selectedSeasons.has(y));
+    const selectAllRow = `<label class="league-row league-row-all">
+      <input type="checkbox" id="chkAllSeasons" ${allChecked ? 'checked' : ''}>
+      <span class="lg-name">Selecionar todos</span>
+    </label>`;
+    const rows = SEASONS.map(y => `
       <label class="league-row">
         <input type="checkbox" value="${y}" ${selectedSeasons.has(y) ? 'checked' : ''}>
         <span class="lg-name">${y}</span>
+        <button type="button" class="btn-only" onclick="onlySeason(${y},event)">Somente esse</button>
       </label>`).join('');
+    $('seasonList').innerHTML = selectAllRow + rows;
+
+    $('chkAllSeasons').addEventListener('change', function() {
+      $('seasonList').querySelectorAll('input[type=checkbox]:not(#chkAllSeasons)')
+        .forEach(c => { c.checked = this.checked; });
+    });
+    $('seasonList').addEventListener('change', e => {
+      if (e.target.id === 'chkAllSeasons') return;
+      updateSelectAllSeasons();
+    });
+  }
+
+  function updateSelectAllSeasons() {
+    const chk = $('chkAllSeasons');
+    if (!chk) return;
+    const items = [...$('seasonList').querySelectorAll('input[type=checkbox]:not(#chkAllSeasons)')];
+    const n = items.filter(c => c.checked).length;
+    chk.checked = n === items.length;
+    chk.indeterminate = n > 0 && n < items.length;
+  }
+
+  function onlySeason(y, ev) {
+    ev.preventDefault(); ev.stopPropagation();
+    $('seasonList').querySelectorAll('input[type=checkbox]:not(#chkAllSeasons)')
+      .forEach(c => { c.checked = parseInt(c.value) === y; });
+    updateSelectAllSeasons();
   }
 
   function openSeasonFilter() {
+    selectedSeasons = new Set(SEASONS);
     renderSeasonList();
     $('seasonModal').hidden = false;
     $('seasonList').querySelector('input')?.focus();

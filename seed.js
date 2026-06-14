@@ -49,12 +49,20 @@ const api = axios.create({
 // ─── CLI args ─────────────────────────────────────────────────────────────────
 
 const args         = process.argv.slice(2);
-const seasonArg    = args.includes('--season')       ? parseInt(args[args.indexOf('--season') + 1])    : null;
 const maxCalls     = args.includes('--max-calls')    ? parseInt(args[args.indexOf('--max-calls') + 1]) : 90;
 const fixturesOnly = args.includes('--fixtures-only');
 const allLeagues   = args.includes('--all-leagues');
 
-const targetSeasons   = seasonArg ? [seasonArg] : ALL_SEASONS;
+// --seasons 2022,2023,2024  OU  --season 2023 (singular, retrocompat)
+const _seasonsArg = args.includes('--seasons')
+  ? args[args.indexOf('--seasons') + 1]
+  : args.includes('--season')
+    ? args[args.indexOf('--season') + 1]
+    : null;
+const targetSeasons = _seasonsArg
+  ? _seasonsArg.split(',').map(s => parseInt(s, 10)).filter(n => !isNaN(n))
+  : ALL_SEASONS;
+
 const targetLeagueIds = allLeagues
   ? LEAGUES.map(l => l.id)
   : [LEAGUE_ID];
@@ -105,6 +113,24 @@ async function upsertVenue(v) {
   );
   venueByKey.set(key, newId);
   return newId;
+}
+
+// ─── League upsert (garante FK antes dos fixtures) ───────────────────────────
+
+async function ensureLeagues() {
+  for (const l of LEAGUES) {
+    await pool.query(
+      `INSERT INTO leagues (id, name, country, logo_url, flag_url)
+       VALUES ($1,$2,$3,$4,$5) ON CONFLICT (id) DO NOTHING`,
+      [
+        l.id,
+        l.name,
+        l.country,
+        `https://media.api-sports.io/football/leagues/${l.id}.png`,
+        null,
+      ],
+    );
+  }
 }
 
 // ─── Fixture insertion ────────────────────────────────────────────────────────
@@ -199,28 +225,80 @@ async function seedFixtures(season, leagueId = LEAGUE_ID) {
 
 // ─── Phase 2: fetch & store lineups for fixtures without them ─────────────────
 
-async function seedLineups(maxApiCalls) {
-  const { rows: missing } = await pool.query(
-    `SELECT f.id, f.home_team_id, f.away_team_id, f.season
-     FROM fixtures f
-     WHERE NOT EXISTS (
-       SELECT 1 FROM fixture_lineups fl WHERE fl.fixture_id = f.id
-     )
-     ORDER BY f.season, f.id`
-  );
+async function seedLineups(maxApiCalls, leagueIds = null, seasons = null) {
+  // Helpers para filtros opcionais — usam parâmetros posicionais a partir de `offset`
+  const hasSeasons = seasons && seasons.length > 0;
 
-  if (missing.length === 0) {
+  // Retorna { clause, params } onde clause inclui os placeholders e params os valores
+  // Condição: fixture ainda não checado OU checado mas lineup encontrado (não tenta de novo se já checou e veio vazio)
+  const notCheckedOrHasLineup = `(f.lineup_checked_at IS NULL) AND NOT EXISTS (SELECT 1 FROM fixture_lineups fl WHERE fl.fixture_id = f.id)`;
+
+  function buildMissingQuery(leagueId, limit) {
+    const params = [leagueId];
+    let clause = `WHERE f.league_id = $1`;
+    if (hasSeasons) { params.push(seasons); clause += ` AND f.season = ANY($${params.length}::int[])`; }
+    clause += ` AND ${notCheckedOrHasLineup}`;
+    const select = `SELECT f.id, f.home_team_id, f.away_team_id, f.season, f.league_id FROM fixtures f ${clause} ORDER BY f.season DESC, f.id`;
+    if (limit) { params.push(limit); return { sql: select + ` LIMIT $${params.length}`, params }; }
+    return { sql: select, params };
+  }
+
+  function buildCountQuery(leagueId) {
+    const params = [leagueId];
+    let clause = `WHERE f.league_id = $1`;
+    if (hasSeasons) { params.push(seasons); clause += ` AND f.season = ANY($${params.length}::int[])`; }
+    clause += ` AND ${notCheckedOrHasLineup}`;
+    return { sql: `SELECT COUNT(*)::int AS n FROM fixtures f ${clause}`, params };
+  }
+
+  let toProcess = [];
+
+  if (leagueIds && leagueIds.length > 1) {
+    // Distribui os calls uniformemente entre ligas
+    const perLeague = Math.max(1, Math.ceil(maxApiCalls / leagueIds.length));
+    let totalMissing = 0;
+    for (const lid of leagueIds) {
+      const q = buildMissingQuery(lid, perLeague);
+      const { rows } = await pool.query(q.sql, q.params);
+      toProcess.push(...rows);
+      const c = buildCountQuery(lid);
+      const { rows: cnt } = await pool.query(c.sql, c.params);
+      totalMissing += cnt[0].n;
+    }
+    toProcess = toProcess.slice(0, maxApiCalls);
+    const seasonsLabel = hasSeasons ? ` · temporadas ${seasons.join(',')}` : '';
+    log(`\n  Fixtures sem lineup: ${totalMissing} (distribuindo entre ${leagueIds.length} ligas${seasonsLabel})`);
+  } else {
+    // Liga única ou sem filtro de liga
+    const lid = leagueIds && leagueIds.length === 1 ? leagueIds[0] : null;
+    let sql, params;
+    if (lid) {
+      const q = buildMissingQuery(lid, null);
+      sql = q.sql; params = q.params;
+    } else {
+      params = [];
+      let clause = `WHERE f.lineup_checked_at IS NULL AND NOT EXISTS (SELECT 1 FROM fixture_lineups fl WHERE fl.fixture_id = f.id)`;
+      if (hasSeasons) { params.push(seasons); clause += ` AND f.season = ANY($${params.length}::int[])`; }
+      sql = `SELECT f.id, f.home_team_id, f.away_team_id, f.season, f.league_id FROM fixtures f ${clause} ORDER BY f.season DESC, f.id`;
+    }
+    const { rows: missing } = await pool.query(sql, params);
+    if (missing.length === 0) {
+      log('\n  Todas as partidas já têm escalação no banco. Nada a fazer.');
+      return { saved: 0, total: 0, remaining: 0 };
+    }
+    toProcess = missing.slice(0, maxApiCalls);
+    log(`\n  Fixtures sem lineup: ${missing.length}`);
+  }
+
+  if (toProcess.length === 0) {
     log('\n  Todas as partidas já têm escalação no banco. Nada a fazer.');
     return { saved: 0, total: 0, remaining: 0 };
   }
-
-  const toProcess = missing.slice(0, maxApiCalls);
-  log(`\n  Fixtures sem lineup: ${missing.length}`);
   log(`  Chamadas nesta execução: ${toProcess.length} (limite: ${maxApiCalls})`);
   log('');
 
-  let saved     = 0;
-  let apiCalls  = 0;
+  let saved    = 0;
+  let apiCalls = 0;
 
   for (let i = 0; i < toProcess.length; i++) {
     const { id, home_team_id, away_team_id } = toProcess[i];
@@ -229,6 +307,9 @@ async function seedLineups(maxApiCalls) {
       const { data } = await api.get('/fixtures/lineups', { params: { fixture: id } });
       apiCalls++;
       await delay(DELAY_MS);
+
+      // Marca que já tentamos buscar esse fixture (mesmo que retorne vazio)
+      await pool.query(`UPDATE fixtures SET lineup_checked_at = NOW() WHERE id = $1`, [id]);
 
       const lineupMap = {};
       for (const entry of data.response ?? []) {
@@ -255,14 +336,20 @@ async function seedLineups(maxApiCalls) {
       if (err.response?.status === 429) {
         log(`\n\n  ⚠  Rate limit atingido após ${apiCalls} chamadas.`);
         log(`  Execute novamente amanhã para continuar.\n`);
-        return { saved, total: toProcess.length, remaining: missing.length - i };
+        return { saved, total: apiCalls, remaining: toProcess.length - i };
       }
       logSame(`  [${i + 1}/${toProcess.length}] fixture ${id} → erro: ${err.message}`);
     }
   }
 
   log('');
-  return { saved, total: toProcess.length, remaining: missing.length - toProcess.length };
+  // Re-conta quantos ainda faltam (sem lineup E ainda não checados = nunca tentados)
+  const { rows: rem } = await pool.query(
+    `SELECT COUNT(*)::int AS n FROM fixtures f
+     WHERE f.lineup_checked_at IS NULL
+       AND NOT EXISTS (SELECT 1 FROM fixture_lineups fl WHERE fl.fixture_id = f.id)`,
+  );
+  return { saved, total: apiCalls, remaining: rem[0].n };
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
@@ -279,7 +366,9 @@ async function seedLineups(maxApiCalls) {
 
   try {
     await initVenueCache();
-    log(`  Cache de venues carregado: ${venueByApiId.size + venueByKey.size} venues.\n`);
+    log(`  Cache de venues carregado: ${venueByApiId.size + venueByKey.size} venues.`);
+    await ensureLeagues();
+    log(`  Ligas garantidas no banco.\n`);
   } catch (e) {
     log(`  ERRO ao conectar ao banco: ${e.message}`);
     log('  Verifique DATABASE_URL no arquivo .env\n');
@@ -315,7 +404,9 @@ async function seedLineups(maxApiCalls) {
 
   // ── Phase 2: lineups ──
   log('\n── Fase 2: Lineups ───────────────────────────────────');
-  const result = await seedLineups(maxCalls);
+  // Passa filtro de temporadas apenas quando especificado via --seasons (não quando é ALL_SEASONS padrão)
+  const lineupSeasons = _seasonsArg ? targetSeasons : null;
+  const result = await seedLineups(maxCalls, allLeagues ? targetLeagueIds : null, lineupSeasons);
 
   log('\n═══════════════════════════════════════════════════════');
   log('  Resumo');
