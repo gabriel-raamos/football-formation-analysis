@@ -59,8 +59,8 @@ app.get('/api/analysis', async (req, res) => {
 app.get('/api/generate', async (req, res) => {
   const { formation_a, formation_b } = req.query;
 
-  if (!formation_a || !formation_b) {
-    return res.status(400).json({ error: 'formation_a e formation_b são obrigatórios.' });
+  if (!formation_a || !formation_b || !isValidFormation(formation_a) || !isValidFormation(formation_b)) {
+    return res.status(400).json({ error: 'formation_a e formation_b são obrigatórias (formato 4-3-3).' });
   }
 
   res.setHeader('Content-Type',      'text/event-stream');
