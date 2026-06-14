@@ -1,32 +1,32 @@
 'use strict';
 /**
- * generate-analyses.js — Pré-gera as análises táticas com a API da Anthropic (Claude)
- * e salva no cache `formation_analyses`. Em produção (Vercel) não há Ollama, então
- * pré-aquecer o cache garante que o endpoint /api/analysis sirva o texto pronto.
+ * generate-analyses.js — Pré-gera as análises táticas e salva no cache
+ * `formation_analyses`. Em produção (Vercel) não há Ollama, então pré-aquecer
+ * o cache garante que /api/analysis sirva o texto pronto.
  *
- * É idempotente: por padrão só gera o que ainda não está em cache e tem amostra
- * suficiente. O texto gerado é equivalente ao do botão "Gerar com Ollama" — mesma
- * função buildPrompt() de ai.js.
+ * A frase factual (quem leva vantagem ou se é equilíbrio) vem do código
+ * (ai.computeVerdict) — só a razão tática é gerada pelo modelo. É idempotente:
+ * por padrão só gera o que falta e tem amostra suficiente.
  *
  * Uso:
- *   node scripts/generate-analyses.js                 # gera o que falta (>= 3 partidas)
- *   node scripts/generate-analyses.js --force         # regenera mesmo se já houver cache
- *   node scripts/generate-analyses.js --min-games 5   # só pares com >= 5 partidas
- *   node scripts/generate-analyses.js --limit 10      # no máximo 10 chamadas ao Claude
- *   node scripts/generate-analyses.js --dry-run       # lista o que faria, sem chamar a API
- *   node scripts/generate-analyses.js --model claude-haiku-4-5
+ *   node scripts/generate-analyses.js                      # Ollama local, o que falta (>= 3 partidas)
+ *   node scripts/generate-analyses.js --provider claude    # usa a API da Anthropic (paga)
+ *   node scripts/generate-analyses.js --force              # regenera mesmo se já houver cache
+ *   node scripts/generate-analyses.js --min-games 5        # só pares com >= 5 partidas
+ *   node scripts/generate-analyses.js --limit 10           # no máximo 10 gerações
+ *   node scripts/generate-analyses.js --dry-run            # lista o que faria, sem gerar
+ *   node scripts/generate-analyses.js --provider claude --model claude-haiku-4-5
  *
  * Requer no .env (ou no ambiente):
- *   ANTHROPIC_API_KEY   chave da API da Anthropic
- *   DATABASE_URL        conexão com o banco (igual ao restante do projeto)
- * Opcional:
- *   ANTHROPIC_MODEL     sobrescreve o modelo padrão (claude-opus-4-8)
+ *   DATABASE_URL        conexão com o banco
+ *   OLLAMA_URL/_MODEL   (provider ollama) — padrão localhost:11434 / llama3.2
+ *   ANTHROPIC_API_KEY   (provider claude) — chave da API da Anthropic
+ * Opcional: ANTHROPIC_MODEL sobrescreve o modelo Claude (padrão claude-opus-4-8)
  */
 
 require('dotenv').config();
-const Anthropic = require('@anthropic-ai/sdk');
 const db = require('../db');
-const { buildPrompt } = require('../ai');
+const ai = require('../ai');
 
 // ─── CLI ────────────────────────────────────────────────────────────────────
 
@@ -34,15 +34,38 @@ const args     = process.argv.slice(2);
 const hasFlag  = (f) => args.includes(f);
 const flagVal  = (f) => (args.includes(f) ? args[args.indexOf(f) + 1] : undefined);
 
+const provider = (flagVal('--provider') || 'ollama').trim();
 const force    = hasFlag('--force');
 const dryRun   = hasFlag('--dry-run');
 const minGames = parseInt(flagVal('--min-games') ?? '3', 10);
 const limit    = flagVal('--limit') ? parseInt(flagVal('--limit'), 10) : Infinity;
 const MODEL    = (flagVal('--model') || process.env.ANTHROPIC_MODEL || 'claude-opus-4-8').trim();
 
-const MAX_TOKENS = 512; // a análise são 2 frases curtas
-
 const log = (msg) => process.stdout.write(msg + '\n');
+
+// ─── Geração por provider ─────────────────────────────────────────────────────
+
+// Claude: o modelo escreve só a razão; o veredito (factual) vem do código.
+function makeClaudeGenerator() {
+  const Anthropic = require('@anthropic-ai/sdk');
+  const client = new Anthropic(); // lê ANTHROPIC_API_KEY do ambiente
+  return async (stats) => {
+    const message = await client.messages.create({
+      model: MODEL,
+      max_tokens: 256,
+      messages: [{ role: 'user', content: ai.buildPrompt(stats) }],
+    });
+    const reason = message.content
+      .filter((b) => b.type === 'text')
+      .map((b) => b.text)
+      .join('')
+      .trim();
+    return reason ? `${ai.computeVerdict(stats)} ${reason}` : ai.computeVerdict(stats);
+  };
+}
+
+// Ollama: completeAnalysis já monta veredito + razão.
+const ollamaGenerator = (stats) => ai.completeAnalysis(stats);
 
 // ─── Descoberta de formações e pares ──────────────────────────────────────────
 
@@ -59,44 +82,29 @@ async function distinctFormations() {
 function unorderedPairs(items) {
   const pairs = [];
   for (let i = 0; i < items.length; i++) {
-    for (let j = i + 1; j < items.length; j++) {
-      pairs.push([items[i], items[j]]);
-    }
+    for (let j = i + 1; j < items.length; j++) pairs.push([items[i], items[j]]);
   }
   return pairs;
-}
-
-// ─── Geração ──────────────────────────────────────────────────────────────────
-
-async function generateText(client, stats) {
-  const message = await client.messages.create({
-    model: MODEL,
-    max_tokens: MAX_TOKENS,
-    messages: [{ role: 'user', content: buildPrompt(stats) }],
-  });
-
-  return message.content
-    .filter((block) => block.type === 'text')
-    .map((block) => block.text)
-    .join('')
-    .trim();
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 (async () => {
   log('\n═══════════════════════════════════════════════════════');
-  log('  Pré-geração de análises — Claude');
+  log('  Pré-geração de análises');
   log('═══════════════════════════════════════════════════════');
-  log(`  Modelo     : ${MODEL}`);
+  log(`  Provider   : ${provider}${provider === 'claude' ? ` (${MODEL})` : ` (${(process.env.OLLAMA_MODEL || 'llama3.2')})`}`);
   log(`  Min. jogos : ${minGames}`);
   log(`  Limite     : ${limit === Infinity ? 'sem limite' : limit}`);
-  log(`  Modo       : ${dryRun ? 'DRY-RUN (sem chamadas à API)' : force ? 'FORCE (regenera tudo)' : 'normal (só o que falta)'}\n`);
+  log(`  Modo       : ${dryRun ? 'DRY-RUN (sem gerar)' : force ? 'FORCE (regenera tudo)' : 'normal (só o que falta)'}\n`);
 
-  if (!dryRun && !process.env.ANTHROPIC_API_KEY) {
-    log('  ERRO: ANTHROPIC_API_KEY não definida no .env.');
-    log('  Adicione a chave da API da Anthropic ao .env e rode de novo.');
-    log('  (Ou use --dry-run para listar o que seria gerado, sem custo.)\n');
+  if (!['ollama', 'claude'].includes(provider)) {
+    log(`  ERRO: --provider inválido: "${provider}". Use "ollama" ou "claude".\n`);
+    process.exit(1);
+  }
+  if (provider === 'claude' && !dryRun && !process.env.ANTHROPIC_API_KEY) {
+    log('  ERRO: ANTHROPIC_API_KEY não definida no .env (necessária para --provider claude).');
+    log('  Use --provider ollama (grátis, local) ou adicione a chave.\n');
     process.exit(1);
   }
 
@@ -113,7 +121,7 @@ async function generateText(client, stats) {
   log(`  Formações no banco : ${formations.length}`);
   log(`  Pares possíveis    : ${pairs.length}\n`);
 
-  const client = dryRun ? null : new Anthropic(); // lê ANTHROPIC_API_KEY do ambiente
+  const generate = dryRun ? null : (provider === 'claude' ? makeClaudeGenerator() : ollamaGenerator);
 
   let generated = 0;
   let skippedFew = 0;
@@ -128,7 +136,6 @@ async function generateText(client, stats) {
 
     const stats = await db.getFormationStats(a, b);
     if (stats.total < minGames) { skippedFew++; continue; }
-
     if (!force && (await db.getCachedAnalysis(a, b))) { skippedCached++; continue; }
 
     if (dryRun) {
@@ -138,14 +145,14 @@ async function generateText(client, stats) {
     }
 
     try {
-      const text = await generateText(client, stats);
-      if (text) {
-        await db.saveAnalysis(a, b, text);
+      const text = await generate(stats);
+      if (text && text.trim()) {
+        await db.saveAnalysis(a, b, text.trim());
         generated++;
-        log(`  [ok] ${a} vs ${b}  (${stats.total} partidas) → ${text.slice(0, 60)}…`);
+        log(`  [ok] ${a} vs ${b}  (${stats.total}) → ${text.slice(0, 70)}…`);
       } else {
         errors++;
-        log(`  [vazio] ${a} vs ${b} — resposta sem texto.`);
+        log(`  [vazio] ${a} vs ${b} — sem texto gerado.`);
       }
     } catch (err) {
       errors++;
