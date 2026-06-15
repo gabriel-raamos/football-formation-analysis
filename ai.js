@@ -8,6 +8,57 @@ const OLLAMA_MODEL = (process.env.OLLAMA_MODEL || 'llama3.2').replace(/"/g, '').
 
 const ollama = new Ollama({ host: OLLAMA_URL });
 
+// ─── Normalização da saída do modelo ──────────────────────────────────────────
+// O llama3.2 produz saídas inconsistentes: às vezes usa **bold**, escreve
+// valores em múltiplas linhas ou adiciona parágrafo introdutório.
+// Esta função normaliza para o formato "Label: conteúdo\n..." esperado pelo
+// parser do frontend.
+
+const FIXED_LABELS = new Set([
+  'formação dominante', 'análise geral', 'formação com dificuldade',
+  'time dominante', 'times com dificuldade',
+  'efetividade por liga', 'desempenho por liga',
+]);
+
+function normalizeAnalysisText(raw, leagueNames = []) {
+  if (!raw || !raw.trim()) return raw;
+
+  const leagueSet = new Set([
+    ...LEAGUES.map(l => l.name.toLowerCase()),
+    ...leagueNames.map(s => s.toLowerCase()),
+  ]);
+
+  const isKnownLabel = (line) => {
+    const m = line.match(/^([^:]{2,60}):/);
+    if (!m) return false;
+    const label = m[1].trim().toLowerCase();
+    return FIXED_LABELS.has(label) || leagueSet.has(label);
+  };
+
+  // 1. Strip markdown bold/italic
+  let text = raw
+    .replace(/\*\*([^*\n]+)\*\*/g, '$1')
+    .replace(/\*([^*\n]+)\*/g, '$1')
+    .replace(/__([^_\n]+)__/g, '$1');
+
+  // 2. Strip list markers, discard preamble, merge continuation lines
+  const lines = text.split('\n')
+    .map(l => l.trim().replace(/^[-•*]\s+/, ''))
+    .filter(Boolean);
+
+  const merged = [];
+  for (const line of lines) {
+    if (isKnownLabel(line)) {
+      merged.push(line);
+    } else if (merged.length > 0) {
+      merged[merged.length - 1] += ' ' + line;
+    }
+    // Lines before the first known label (preambles) are discarded
+  }
+
+  return merged.join('\n');
+}
+
 // ─── Contexto de liga ─────────────────────────────────────────────────────────
 // Converte array de IDs em rótulo legível para o prompt.
 
@@ -115,7 +166,9 @@ async function completeAnalysis(stats) {
     stream:   false,
   });
 
-  return (res.message?.content || '').trim() || computeVerdict(stats);
+  const raw = (res.message?.content || '').trim();
+  return normalizeAnalysisText(raw, (stats.leagueStats || []).map(l => l.league_name))
+    || computeVerdict(stats);
 }
 
 /**
@@ -257,7 +310,9 @@ async function completeOverviewAnalysis(data) {
     stream:   false,
   });
 
-  return (res.message?.content || '').trim() || 'Análise não disponível.';
+  const raw = (res.message?.content || '').trim();
+  return normalizeAnalysisText(raw, (data.leagueStats || []).map(l => l.league_name))
+    || 'Análise não disponível.';
 }
 
-module.exports = { streamAnalysis, completeAnalysis, completeOverviewAnalysis, buildPrompt, computeVerdict, streamOverviewAnalysis };
+module.exports = { streamAnalysis, completeAnalysis, completeOverviewAnalysis, buildPrompt, computeVerdict, streamOverviewAnalysis, normalizeAnalysisText };
