@@ -532,6 +532,81 @@
       .btn-analyze.loading::after { animation: spin .6s linear infinite !important; }
     }
 
+    /* ── Dispositivos touch: "Somente esse" sempre visível (sem hover) ─────── */
+    @media (hover: none) {
+      .league-row .btn-only { display: block; }
+      .league-row .lg-meta  { display: none; }
+    }
+
+    /* ── Mobile ≤ 679 px ─────────────────────────────────────────────────── */
+    @media (max-width: 679px) {
+      body {
+        align-items: flex-start;   /* conteúdo parte do topo, não do centro */
+        padding: 1.25rem 1rem;
+      }
+
+      main { max-width: 100%; }
+
+      /* Impede auto-zoom do iOS/Safari ao tocar em selects (< 16 px dispara zoom) */
+      select {
+        font-size: 1rem;
+        padding: .65rem .75rem;
+        padding-right: 2rem;
+      }
+
+      /* Header: empilha título + filtros verticalmente */
+      .header {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: .4rem;
+        margin-bottom: 1.25rem;
+      }
+
+      /* Botão analisar: aumenta área de toque (44 px = mínimo iOS HIG) */
+      .btn-analyze { width: 44px; height: 44px; }
+
+      /* Result card: menos padding em telas pequenas */
+      .result { padding: 1rem; }
+
+      /* Colunas H2H: empilha verticalmente para evitar overflow e melhorar leitura */
+      .matchup-cols { grid-template-columns: 1fr; gap: .35rem; }
+
+      /* Separador visual entre os dois blocos empilhados */
+      .matchup-col + .matchup-col {
+        padding-top: .5rem;
+        border-top: 1px solid var(--border);
+        margin-top: .15rem;
+      }
+
+      /* Stats dentro das colunas H2H: ajusta tamanhos em tela cheia */
+      .matchup-col .team-name { font-size: .82rem; }
+      .matchup-col .team-stat { font-size: .68rem; }
+      .matchup-col .team-logo { width: 18px; height: 18px; }
+      .matchup-col .team-initial { width: 18px; height: 18px; }
+
+      /* Cards de análise da IA: menor padding */
+      .analysis-main   { padding: .5rem .65rem; }
+      .analysis-league { padding: .25rem .55rem; }
+
+      /* Modal: menos padding em telas muito pequenas */
+      .modal { padding: 1rem .9rem; }
+    }
+
+    /* ── Extra-pequeno ≤ 380 px ──────────────────────────────────────────── */
+    @media (max-width: 380px) {
+      body { padding: 1rem .75rem; }
+
+      .result { padding: .85rem .75rem; }
+
+      /* Barra de busca: encurta para caber em 320 px */
+      .search { gap: .4rem; }
+      .vs { font-size: .65rem; }
+
+      /* Botão de filtro: textos menores */
+      .filter-btn { font-size: .68rem; padding: .3rem .65rem; }
+    }
+
   </style>
 </head>
 <body>
