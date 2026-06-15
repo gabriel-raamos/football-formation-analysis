@@ -1,10 +1,14 @@
 # Football Formation Analysis
 
-Análise de formações táticas a partir de partidas reais. Escolha duas formações
-(ex.: `4-2-3-1` vs `4-3-3`) e veja o histórico de confrontos — vitórias, empates,
-derrotas, média de gols — mais uma análise tática textual. Também há um modo
-"geral" (uma formação contra todas as outras) com o ranking de times que mais a
-usam, e um filtro para escolher quais campeonatos entram na conta.
+Plataforma de análise tática de futebol baseada em dados reais de partidas. O objetivo é responder perguntas como "qual formação leva vantagem sobre outra?" ou "quais times jogam melhor com um esquema específico?" com estatísticas concretas, não com opinião.
+
+**O que a plataforma oferece:**
+
+- **Confronto direto (H2H):** selecione duas formações e veja o histórico completo de partidas entre elas — total de jogos, vitórias de cada lado, empates, média de gols e percentuais de aproveitamento. Os resultados são separados por campeonato, com uma análise tática textual gerada por IA.
+- **Modo geral:** analise uma formação contra todas as outras. Mostra aproveitamento global, ranking dos times que mais a utilizam com sucesso, ranking das formações adversárias com maior dificuldade, e desempenho por liga.
+- **Filtros de campeonato e temporada:** restrinja a análise a ligas específicas (Brasileirão, Premier League, La Liga, Bundesliga, Ligue 1, Serie A e Liga Profesional Argentina) ou a determinados anos, com os filtros salvos entre sessões.
+- **Análise por liga nos times:** cada bloco de campeonato no painel de times exibe as estatísticas H2H daquela liga separadamente, facilitando comparações entre contextos táticos distintos.
+- **Análise de IA:** textos táticos descritivos gerados por LLM, pré-calculados e armazenados em cache — a parte factual (quem leva vantagem) é sempre calculada no código para garantir precisão.
 
 Os dados vêm da [API-Football](https://www.api-football.com/) e ficam num
 PostgreSQL (Supabase). As análises de texto são geradas por um LLM local (Ollama)
